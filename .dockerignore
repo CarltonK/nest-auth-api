@@ -1,0 +1,8 @@
+# Generated
+node_modules/
+dist/
+coverage/
+
+# TXT
+README.md
+CHANGELOG.md

@@ -1,0 +1,50 @@
+services:
+  postgres:
+    container_name: gps_db
+    image: postgres:17
+    volumes:
+      - gps:/var/lib/postgresql/data
+    networks:
+      backend_network:
+        ipv4_address: 172.55.0.2
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: "gps"
+      POSTGRES_PASSWORD: "gps"
+      POSTGRES_DB: "gps_db"
+      PGDATA: /var/lib/postgresql/data/gps_db/
+  gps:
+    container_name: gps_api
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    volumes:
+      - type: bind
+        source: ./src/
+        target: /app/src/
+      - type: bind
+        source: ./package.json
+        target: /app/package.json
+      - type: bind
+        source: ./tsconfig.json
+        target: /app/tsconfig.json
+    networks:
+      backend_network:
+        ipv4_address: 172.55.0.3
+    depends_on:
+      - postgres
+    ports:
+      - 3000:3000
+    environment:
+      PORT: 3000
+      NODE_ENV: 'local'
+      DATABASE_URL: 'postgresql://gps:gps@172.55.0.2:5432/gps_db?connection_limit=1'
+volumes:
+  gps:
+networks:
+  backend_network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.55.0.0/16
