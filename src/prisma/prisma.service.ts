@@ -53,7 +53,7 @@ export class PrismaService
   async runMigrations() {
     return new Promise((resolve) => {
       exec(
-        'yarn run migrations:prod',
+        'npm run migrations:prod',
         { maxBuffer: 1024 * 500 },
         (error, stdout) => {
           if (error) {

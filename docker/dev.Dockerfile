@@ -12,13 +12,13 @@ RUN apk --no-cache add \
 WORKDIR /app
 
 # install and cache app dependencies
-COPY package.json yarn.lock ./
+COPY package*.json ./
 
-RUN yarn install --frozen-lockfile
+RUN npm install --frozen-lockfile
 
 COPY . .
 
 # add `/app/node_modules/.bin` to $PATH
 ENV PATH=/app/node_modules/.bin:$PATH
 
-CMD [ "yarn", "run", "start:dev" ] 
+CMD [ "npm", "run", "start:dev" ] 
