@@ -1,19 +1,19 @@
 services:
-  postgres:
+  mysql:
     container_name: gps_db
-    image: postgres:17
+    image: mysql:8
     volumes:
-      - gps:/var/lib/postgresql/data
+    - gps:/var/lib/mysql
     networks:
       backend_network:
         ipv4_address: 172.55.0.2
     ports:
-      - 5432:5432
+    - 3306:3306
     environment:
-      POSTGRES_USER: "gps"
-      POSTGRES_PASSWORD: "gps"
-      POSTGRES_DB: "gps_db"
-      PGDATA: /var/lib/postgresql/data/gps_db/
+      MYSQL_DATABASE: 'gps_db'
+      MYSQL_USER: 'gps'
+      MYSQL_PASSWORD: 'gps'
+      MYSQL_ROOT_PASSWORD: 'gps_root'
   gps:
     container_name: gps_api
     build:
@@ -33,13 +33,13 @@ services:
       backend_network:
         ipv4_address: 172.55.0.3
     depends_on:
-      - postgres
+      - mysql
     ports:
       - 3000:3000
     environment:
       PORT: 3000
       NODE_ENV: 'local'
-      DATABASE_URL: 'postgresql://gps:gps@172.55.0.2:5432/gps_db?connection_limit=1'
+      DATABASE_URL: 'mysql://gps:gps@172.55.0.2:3306/gps_db?connection_limit=1'
 volumes:
   gps:
 networks:
