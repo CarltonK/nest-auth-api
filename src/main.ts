@@ -5,9 +5,26 @@ import helmet from 'helmet';
 import { ConfigService } from '@nestjs/config';
 import {
   BadRequestException,
+  INestApplication,
   ValidationError,
   ValidationPipe,
 } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
+/*
+ * Swagger API documentation
+ */
+const SWAGGER_PATH = '/swagger';
+
+export const setupSwagger = (app: INestApplication) => {
+  const docConfig = new DocumentBuilder()
+    .setTitle('GPS API')
+    .setDescription('A full documentation of GPS API')
+    .setVersion('0.0.1')
+    .build();
+  const document = SwaggerModule.createDocument(app, docConfig);
+  SwaggerModule.setup(SWAGGER_PATH, app, document);
+};
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -76,6 +93,7 @@ async function bootstrap() {
   app.enableCors(); // Cors
 
   const configService = app.get(ConfigService);
+  setupSwagger(app);
   await app.listen(configService.get('PORT'));
 }
 bootstrap();
