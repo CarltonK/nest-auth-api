@@ -5,7 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 
-import config from './utils/config';
+import config, { validationSchema } from './utils/config';
 
 @Module({
   imports: [
@@ -14,6 +14,8 @@ import config from './utils/config';
       ignoreEnvFile: true,
       cache: true,
       load: [config],
+      validationSchema,
+      validationOptions: { allowUnknown: true, abortEarly: false },
     }),
     PrismaModule,
     AuthModule,
