@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `User` ADD COLUMN `firstName` VARCHAR(200) NULL,
+    ADD COLUMN `lastName` VARCHAR(200) NULL;

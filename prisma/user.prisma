@@ -1,5 +1,33 @@
 model User {
-    id                Int                @id @default(autoincrement())
-    uid               String             @unique @db.VarChar(100)
-    emailAddress      String             @unique @db.VarChar(200)
+    id                      Int               @id @default(autoincrement())
+    emailAddress            String            @unique @db.VarChar(200)
+    firstName               String?           @db.VarChar(200)
+    lastName                String?           @db.VarChar(200)
+    passwordHash            String
+    emailVerificationToken  String?
+    emailVerificationSentAt DateTime?
+    metadata                Json?
+    passwordChangedAt       DateTime
+    createdAt               DateTime          @default(now())
+    updatedAt               DateTime          @updatedAt
+    auditLog                AuditLog[]
+    passwordHistory         PasswordHistory[]
+}
+
+model AuditLog {
+    id        String   @id @default(uuid())
+    userId    Int?
+    eventType String
+    severity  String
+    details   Json
+    createdAt DateTime @default(now())
+    user      User?    @relation(fields: [userId], references: [id])
+}
+
+model PasswordHistory {
+    id           String   @id @default(uuid())
+    userId       Int
+    user         User     @relation(fields: [userId], references: [id])
+    passwordHash String
+    createdAt    DateTime @default(now())
 }
