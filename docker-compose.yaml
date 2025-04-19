@@ -3,7 +3,8 @@ services:
     container_name: gps_db
     image: mysql:8
     volumes:
-    - gps:/var/lib/mysql
+      - gps:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       backend_network:
         ipv4_address: 172.55.0.2
@@ -37,9 +38,15 @@ services:
     ports:
       - 3000:3000
     environment:
-      PORT: 3000
+      PORT: '3000'
       NODE_ENV: 'local'
       DATABASE_URL: 'mysql://gps:gps@172.55.0.2:3306/gps_db?connection_limit=1'
+      REGISTRATION_AUTO_LOGIN: 'true'
+      PASSWORD_BCRYPT_ROUNDS: '12'
+      PASSWORD_HISTORY_LIMIT: '5'
+      PASSWORD_CHECK_COMPROMISED: 'true'
+      REGISTER_RATE_LIMIT_ATTEMPTS: '5'
+      REGISTER_RATE_LIMIT_TIMEFRAME: '300000'
 volumes:
   gps:
 networks:
