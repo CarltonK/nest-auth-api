@@ -4,14 +4,23 @@ model User {
     firstName               String?           @db.VarChar(200)
     lastName                String?           @db.VarChar(200)
     passwordHash            String
+    emailVerifiedAt         DateTime?
     emailVerificationToken  String?
     emailVerificationSentAt DateTime?
     metadata                Json?
+    mfaEnabled              Boolean           @default(false)
+    isActive                Boolean           @default(false)
+    isLocked                Boolean           @default(false)
+    failedAttemptsCount     Int               @default(0)
     passwordChangedAt       DateTime
+    lastLoginAt             DateTime?
     createdAt               DateTime          @default(now())
     updatedAt               DateTime          @updatedAt
     auditLog                AuditLog[]
     passwordHistory         PasswordHistory[]
+    sessions                Session[]
+    authTokens              AuthToken[]
+    mfaMethods              MfaMethod[]
 }
 
 model AuditLog {

@@ -1,0 +1,45 @@
+model Session {
+    id        String      @id @default(uuid())
+    userId    Int
+    metadata  Json?
+    expiresAt DateTime
+    createdAt DateTime    @default(now())
+    user      User        @relation(fields: [userId], references: [id])
+    authToken AuthToken[]
+}
+
+model AuthToken {
+    id        String   @id @default(uuid())
+    userId    Int
+    token     String   @unique
+    type      String
+    sessionId String?
+    userAgent String?
+    expiresAt DateTime
+    createdAt DateTime @default(now())
+    user      User     @relation(fields: [userId], references: [id])
+    session   Session? @relation(fields: [sessionId], references: [id])
+}
+
+model FailedLoginAttempt {
+    id           String   @id @default(uuid())
+    emailAddress String
+    metadata     Json?
+    createdAt    DateTime @default(now())
+}
+
+model MfaMethod {
+    id         String    @id @default(uuid())
+    type       String    @db.VarChar(20) // "TOTP", "SMS", "Email", "Recovery"
+    secret     String?   @db.VarChar(255)
+    phone      String?   @db.VarChar(20)
+    isPrimary  Boolean   @default(false)
+    createdAt  DateTime  @default(now())
+    lastUsedAt DateTime?
+    userId     Int
+    user       User      @relation(fields: [userId], references: [id])
+
+    @@unique([userId, type])
+    @@index([userId])
+    @@index([type])
+}

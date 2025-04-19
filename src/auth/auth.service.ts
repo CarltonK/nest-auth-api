@@ -1,18 +1,24 @@
 import {
   BadRequestException,
-  ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
+  UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { RegisterUserDto } from './dto/register.dto';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
 import zxcvbn from 'zxcvbn';
-import { hash } from 'bcrypt';
+import { hash, compare } from 'bcrypt';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from './../prisma/prisma.service';
+import { UAParser } from 'ua-parser-js';
+import { lookup } from 'geoip-lite';
+import { LoginUserDto } from './dto/login.dto';
+import { JwtService } from './jwt.service';
 
 @Injectable()
 export class AuthService {
@@ -22,12 +28,20 @@ export class AuthService {
     @Inject(ConfigService) private readonly _configService: ConfigService,
     @Inject(PrismaService) private readonly _prismaService: PrismaService,
     @Inject(HttpService) private readonly _httpService: HttpService,
+    @Inject(JwtService) private readonly _jwtService: JwtService,
   ) {
     this._logger = new Logger(AuthService.name);
   }
 
-  async registerUser(registerDto: RegisterUserDto, ipAddress: string) {
-    const { password, email, firstName, lastName } = registerDto;
+  async registerUser(
+    registerDto: RegisterUserDto,
+    metadata: Record<string, any>,
+  ) {
+    const { password, emailAddress, firstName, lastName } = registerDto;
+    const { ipAddress } = metadata;
+
+    // Rate limiting check
+    await this.checkRateLimiting(ipAddress, 'register');
 
     // Validate password strength
     const passwordStrength = zxcvbn(registerDto.password);
@@ -55,12 +69,12 @@ export class AuthService {
       try {
         // Check existing user
         const existingUser = await prisma.user.findUnique({
-          where: { emailAddress: email },
+          where: { emailAddress },
         });
 
         if (existingUser) {
-          throw new ConflictException({
-            message: 'Email already registered',
+          throw new UnprocessableEntityException({
+            message: 'Invalid registration details',
           });
         }
 
@@ -73,38 +87,37 @@ export class AuthService {
         // Generate verification token
         const verificationToken = this.generateVerificationToken();
 
+        // Request Metadata
+        const requestMetadata = this.createUserMetadata(metadata);
+
         // Create user
         const user = await prisma.user.create({
           data: {
-            emailAddress: email,
+            emailAddress,
             firstName,
             lastName,
             passwordHash,
             emailVerificationToken: verificationToken,
-            metadata: this.createUserMetadata(ipAddress),
+            metadata: { registration: requestMetadata },
             passwordChangedAt: new Date(),
             emailVerificationSentAt: new Date(),
           },
+          select: { id: true },
         });
 
         // Store password history if enabled
         if (this._configService.get<number>('security.password.history')) {
-          await this._prismaService.passwordHistory.create({
-            data: { userId: user.id, passwordHash },
+          await prisma.passwordHistory.create({
+            data: { user: { connect: { id: user.id } }, passwordHash },
           });
         }
 
         // Create audit log
-        await this._prismaService.auditLog.create({
-          data: {
-            userId: user.id,
-            eventType: 'USER_REGISTERED',
-            severity: 'INFO',
-            details: { ipAddress, email },
-          },
+        await this.createAuditLog(user.id, 'USER_REGISTERED', 'INFO', {
+          ipAddress,
         });
 
-        // Send verification email
+        // TODO: Send verification email
         // await this.mailService.sendVerificationEmail(
         //   user.email,
         //   verificationToken,
@@ -130,11 +143,180 @@ export class AuthService {
           data: {
             eventType: 'REGISTRATION_FAILED',
             severity: 'ERROR',
-            details: { error: error.message, email, ipAddress },
+            details: { error: error.message, emailAddress, ipAddress },
           },
         });
         throw error;
       }
+    });
+  }
+
+  async loginUser(loginDto: LoginUserDto, metadata: Record<string, any>) {
+    const { emailAddress, password } = loginDto;
+
+    // Request Metadata
+    const requestMetadata = this.createUserMetadata(metadata);
+
+    const { ipAddress } = requestMetadata;
+
+    // Rate limiting check
+    await this.checkRateLimiting(ipAddress, 'login');
+
+    return this._prismaService.$transaction(async (prisma) => {
+      const user = await prisma.user.findUnique({
+        where: { emailAddress, isActive: true },
+        include: { mfaMethods: true },
+      });
+
+      if (!user || !(await compare(password, user.passwordHash))) {
+        await this.handleFailedLogin(emailAddress, ipAddress);
+        throw new UnauthorizedException({ message: 'Invalid credentials' });
+      }
+
+      if (!user.emailVerifiedAt) {
+        throw new ForbiddenException({ message: 'Email not verified' });
+      }
+
+      // if (user.mfaEnabled) {
+      //   return this.handleMfaFlow(user);
+      // }
+
+      const session = await this.createSession(user.id, requestMetadata);
+      const tokens = await this.generateTokens(
+        user.id,
+        session.id,
+        requestMetadata,
+      );
+
+      await this.updateUserLogin(user.id);
+      await this.createAuditLog(
+        user.id,
+        'USER_LOGGED_IN',
+        'INFO',
+        requestMetadata,
+      );
+
+      return {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: this._configService.get<number>('jwt.accessExpiry'),
+        sessionId: session.id,
+      };
+    });
+  }
+
+  /*
+   * Private Methods
+   */
+  private createSession(userId: number, metadata: Record<string, any>) {
+    return this._prismaService.session.create({
+      data: {
+        userId,
+        metadata,
+        expiresAt: new Date(
+          Date.now() + this._configService.get<number>('session.expiry'),
+        ),
+      },
+    });
+  }
+
+  private async checkRateLimiting(ipAddress: string, type: string) {
+    const attempts = this._configService.get<number>(
+      `security.rateLimit.${type}.attempts`,
+    );
+    const timeframe = this._configService.get<number>(
+      `security.rateLimit.${type}.timeframe`,
+    );
+
+    const count = await this._prismaService.failedLoginAttempt.count({
+      where: {
+        metadata: { path: '$.ipAddress', equals: ipAddress },
+        createdAt: { gte: new Date(Date.now() - timeframe * 1000) },
+      },
+    });
+
+    if (count >= attempts) {
+      await this.createAuditLog(null, 'LOGIN_RATE_LIMIT_EXCEEDED', 'WARNING', {
+        ipAddress,
+      });
+      throw new UnauthorizedException('Too many login attempts');
+    }
+  }
+
+  private async handleFailedLogin(emailAddress: string, ipAddress: string) {
+    const metadata = { ipAddress };
+    await this._prismaService.failedLoginAttempt.create({
+      data: { emailAddress, metadata },
+    });
+
+    const attempts = await this._prismaService.failedLoginAttempt.count({
+      where: {
+        emailAddress,
+        createdAt: { gte: new Date(Date.now() - 3600000) },
+      },
+    });
+
+    if (
+      attempts >=
+      this._configService.get<number>('security.suspiciousThreshold')
+    ) {
+      // await this.sendSuspiciousActivityAlert(email, ipAddress);
+    }
+
+    if (
+      attempts >= this._configService.get<number>('security.maxFailedAttempts')
+    ) {
+      // await this.lockAccount(email);
+      throw new UnprocessableEntityException('Account temporarily locked');
+    }
+
+    await this.createAuditLog(null, 'LOGIN_FAILED', 'WARNING', {
+      emailAddress,
+      ipAddress,
+    });
+  }
+
+  private async generateTokens(
+    userId: number,
+    sessionId: string,
+    metadata: Record<string, any>,
+  ) {
+    // Payloads
+    const accessPayload = { sub: userId, sessionId, type: 'access' };
+    const refreshPayload = { sub: userId, sessionId, type: 'refresh' };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this._jwtService.signAccessToken(accessPayload),
+      this._jwtService.signRefreshToken(refreshPayload),
+    ]);
+
+    await this.storeRefreshToken(refreshToken, userId, sessionId, metadata);
+    return { accessToken, refreshToken };
+  }
+
+  private async storeRefreshToken(
+    token: string,
+    userId: number,
+    sessionId: string,
+    metadata: Record<string, any>,
+  ) {
+    const hashedToken = await hash(
+      token,
+      this._configService.get<number>('security.password.bcryptRounds'),
+    );
+
+    await this._prismaService.authToken.create({
+      data: {
+        userId,
+        token: hashedToken,
+        type: 'refresh',
+        sessionId,
+        userAgent: JSON.stringify(metadata),
+        expiresAt: new Date(
+          Date.now() +
+            this._configService.get<number>('jwt.refreshExpiry') * 1000,
+        ),
+      },
     });
   }
 
@@ -168,8 +350,51 @@ export class AuthService {
       : randomBytes(32).toString('hex');
   }
 
-  private createUserMetadata(ipAddress: string): any {
+  private createUserMetadata(metadata: Record<string, any>): any {
+    const { ipAddress, userAgent } = metadata;
+
+    // Parse User-Agent
+    const parser = new UAParser(userAgent);
+    const browser = parser.getBrowser();
+    const os = parser.getOS();
+    const device = parser.getDevice();
+
+    // Get location from IP
+    const geo = lookup(ipAddress);
+    const location = geo ? `${geo.city}, ${geo.country}` : 'Unknown';
+
     const timestamp = new Date().toISOString();
-    return { registration: { ipAddress, timestamp } };
+
+    return {
+      ipAddress,
+      timestamp,
+      device: device.type,
+      browser: browser.name,
+      platform: os.name,
+      location,
+    };
+  }
+
+  private async updateUserLogin(userId: number) {
+    await this._prismaService.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+    });
+  }
+
+  private createAuditLog(
+    userId: number | null,
+    eventType: string,
+    severity: string,
+    details: object,
+  ) {
+    return this._prismaService.auditLog.create({
+      data: {
+        userId,
+        eventType,
+        severity,
+        details: JSON.stringify(details),
+      },
+    });
   }
 }

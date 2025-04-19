@@ -1,0 +1,33 @@
+import { Injectable } from '@nestjs/common';
+import { JwtService as NestJwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class JwtService {
+  constructor(
+    private readonly _nestJwtService: NestJwtService,
+    private readonly _configService: ConfigService,
+  ) {}
+
+  async signAccessToken(payload: any): Promise<string> {
+    return this._nestJwtService.signAsync(payload, {
+      secret: this._configService.get<string>('jwt.accessSecret'),
+      expiresIn: this._configService.get<number>('jwt.accessExpiry'),
+    });
+  }
+
+  async signRefreshToken(payload: any): Promise<string> {
+    return this._nestJwtService.signAsync(payload, {
+      secret: this._configService.get<string>('jwt.refreshSecret'),
+      expiresIn: this._configService.get<number>('jwt.refreshExpiry'),
+    });
+  }
+
+  verifyToken(token: string, isRefreshToken = false): any {
+    return this._nestJwtService.verify(token, {
+      secret: isRefreshToken
+        ? this._configService.get<string>('jwt.refreshSecret')
+        : this._configService.get<string>('jwt.accessSecret'),
+    });
+  }
+}

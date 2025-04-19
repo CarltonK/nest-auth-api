@@ -16,7 +16,7 @@ export class RegisterUserDto {
   })
   @IsEmail()
   @IsNotEmpty()
-  email: string;
+  emailAddress: string;
 
   @ApiProperty({
     description: 'User password (min 8 characters)',
