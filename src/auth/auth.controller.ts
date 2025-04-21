@@ -1,18 +1,21 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Response, Request } from 'express';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RegisterUserDto } from './dto/register.dto';
 import { LoginUserDto } from './dto/login.dto';
+import { VerifyEmailDto } from './dto/verifyEmail.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -154,6 +157,39 @@ export class AuthController {
     const metadata = { ipAddress, userAgent };
 
     const response = await this._authService.loginUser(loginDto, metadata);
+    return res.json(response);
+  }
+
+  /*
+   * Verify a users' email
+   */
+  @Get('verify-email')
+  @ApiQuery({ name: 'emailAddress', type: String, required: true })
+  @ApiQuery({ name: 'token', type: String, required: true })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Email verified successfully',
+    schema: { example: { message: 'Email verified successfully' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or expired verification token',
+    schema: { example: { message: 'Invalid or expired verification token' } },
+  })
+  async verifyEmail(
+    @Req() request: Request,
+    @Res() res: Response,
+    @Query() verifyEmailDto: VerifyEmailDto,
+  ) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._authService.verifyEmail(
+      verifyEmailDto,
+      metadata,
+    );
     return res.json(response);
   }
 }

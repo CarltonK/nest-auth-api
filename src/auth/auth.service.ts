@@ -19,10 +19,12 @@ import { UAParser } from 'ua-parser-js';
 import { lookup } from 'geoip-lite';
 import { LoginUserDto } from './dto/login.dto';
 import { JwtService } from './jwt.service';
+import { VerifyEmailDto } from './dto/verifyEmail.dto';
 
 @Injectable()
 export class AuthService {
   private readonly _logger: Logger;
+  private readonly _testToken = 'TEST_VERIFICATION_TOKEN';
 
   constructor(
     @Inject(ConfigService) private readonly _configService: ConfigService,
@@ -266,6 +268,50 @@ export class AuthService {
     });
   }
 
+  async verifyEmail(
+    verifyEmailDto: VerifyEmailDto,
+    metadata: Record<string, any>,
+  ) {
+    const { emailAddress, token } = verifyEmailDto;
+
+    const user = await this._prismaService.user.findFirst({
+      ...this.buildVerificationQuery(emailAddress, token),
+      select: { id: true, emailAddress: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException({
+        message: 'Invalid or expired verification token',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerifiedAt: new Date(),
+          emailVerificationToken: null,
+          emailVerificationSentAt: null,
+        },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          user: { connect: { id: user.id } },
+          eventType: 'EMAIL_VERIFIED',
+          severity: 'INFO',
+          details: {
+            ...metadata,
+            environment: this._configService.get('NODE_ENV'),
+          },
+        },
+      });
+
+      const response = { message: 'Email verified successfully' };
+      return response;
+    });
+  }
+
   /*
    * Private Methods
    */
@@ -356,7 +402,7 @@ export class AuthService {
   private generateVerificationToken(): string {
     const env = this._configService.get<string>('NODE_ENV');
     return ['development', 'test'].includes(env)
-      ? 'TEST_VERIFICATION_TOKEN'
+      ? this._testToken
       : randomBytes(32).toString('hex');
   }
 
@@ -399,5 +445,37 @@ export class AuthService {
         details,
       },
     });
+  }
+
+  private buildVerificationQuery(emailAddress: string, token: string) {
+    const isTestEnv = ['development', 'test'].includes(
+      this._configService.get('NODE_ENV'),
+    );
+
+    const baseWhere = {
+      emailAddress,
+      emailVerificationToken: token,
+      emailVerifiedAt: null,
+    };
+
+    if (isTestEnv && token === this._testToken) {
+      return { where: baseWhere };
+    }
+
+    return {
+      where: {
+        ...baseWhere,
+        emailVerificationSentAt: {
+          gte: this.getVerificationExpiryDate(),
+        },
+      },
+    };
+  }
+
+  private getVerificationExpiryDate(): Date {
+    const expiryHours = this._configService.get<number>(
+      'security.email.verification.expiryHours',
+    );
+    return new Date(Date.now() - expiryHours * 60 * 60 * 1000);
   }
 }
