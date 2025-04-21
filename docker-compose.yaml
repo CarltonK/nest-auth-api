@@ -47,6 +47,9 @@ services:
       PASSWORD_CHECK_COMPROMISED: 'true'
       REGISTER_RATE_LIMIT_ATTEMPTS: '5'
       REGISTER_RATE_LIMIT_TIMEFRAME: '300000'
+      JWT_ACCESS_SECRET: 'suchasecureaccesssecret'
+      JWT_REFRESH_SECRET: 'suchasecurerefreshsecret'
+
 volumes:
   gps:
 networks:
