@@ -1,12 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { JwtService as NestJwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class JwtService {
   constructor(
-    private readonly _nestJwtService: NestJwtService,
-    private readonly _configService: ConfigService,
+    @Inject(NestJwtService) private readonly _nestJwtService: NestJwtService,
+    @Inject(ConfigService) private readonly _configService: ConfigService,
   ) {}
 
   async signAccessToken(payload: any): Promise<string> {

@@ -312,6 +312,45 @@ export class AuthService {
     });
   }
 
+  async logoutUser(
+    payload: Record<string, any>,
+    metadata: Record<string, any>,
+  ) {
+    const { sub: userId, session: sessionId } = payload;
+    try {
+      return this._prismaService.$transaction(async (prisma) => {
+        // Revoke current session
+        await prisma.session.update({
+          where: { id: sessionId, userId },
+          data: { isActive: false },
+        });
+
+        // Revoke all refresh tokens
+        await prisma.authToken.updateMany({
+          where: { userId, type: 'refresh', revoked: false },
+          data: { revoked: true },
+        });
+
+        // Audit Log
+        await prisma.auditLog.create({
+          data: {
+            user: { connect: { id: userId } },
+            eventType: 'USER_LOGGED_OUT',
+            severity: 'INFO',
+            details: { ...metadata, sessionId },
+          },
+        });
+
+        return { message: 'Logged out successfully' };
+      });
+    } catch (error) {
+      await this.createAuditLog(null, 'LOGOUT_FAILED', 'ERROR', {
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
   /*
    * Private Methods
    */

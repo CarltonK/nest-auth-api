@@ -86,7 +86,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 attempts per 5 minutes
   @ApiOperation({
-    summary: 'Authenticate user',
+    summary: 'Authenticate a user',
     description: 'Performs user authentication with multiple security checks',
   })
   @ApiResponse({
@@ -164,6 +164,11 @@ export class AuthController {
    * Verify a users' email
    */
   @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Verify a users' email",
+    description: 'Performs email verification',
+  })
   @ApiQuery({ name: 'emailAddress', type: String, required: true })
   @ApiQuery({ name: 'token', type: String, required: true })
   @ApiResponse({
@@ -190,6 +195,36 @@ export class AuthController {
       verifyEmailDto,
       metadata,
     );
+    return res.json(response);
+  }
+
+  /*
+   * Logout a user
+   */
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Logout a user',
+    description: 'Invalidates current session and refresh tokens',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Logged out successfully',
+    schema: { example: { message: 'Logged out successfully' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized',
+    schema: { example: { message: 'Invalid token' } },
+  })
+  async logout(@Req() request: any, @Res() res: Response) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const user = request.user;
+    const response = await this._authService.logoutUser(user, metadata);
     return res.json(response);
   }
 }
