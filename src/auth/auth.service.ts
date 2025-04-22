@@ -165,7 +165,7 @@ export class AuthService {
     const { ipAddress } = requestMetadata;
 
     // Rate limiting check
-    // await this.checkRateLimiting(ipAddress, 'login');
+    await this.checkRateLimiting(ipAddress, 'login');
 
     return this._prismaService.$transaction(async (prisma) => {
       try {
