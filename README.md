@@ -1,3 +1,7 @@
+## Requirements
+
+1. Node 22.XX
+
 ## Installation
 
 ```bash
@@ -45,3 +49,7 @@ For easier identification the name should be in small caps and separate by under
 ```bash
 $ npx prisma migrate dev --name create_user_table
 ```
+
+## API Documentation
+
+Once confirmed that the app is running you can access the documentation on http://localhost:3000/swagger
