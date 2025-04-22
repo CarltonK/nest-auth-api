@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Response, Request } from 'express';
@@ -16,6 +17,7 @@ import { Throttle } from '@nestjs/throttler';
 import { RegisterUserDto } from './dto/register.dto';
 import { LoginUserDto } from './dto/login.dto';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
+import { AuthGuard } from './auth.guard';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -201,6 +203,7 @@ export class AuthController {
   /*
    * Logout a user
    */
+  @UseGuards(AuthGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
