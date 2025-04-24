@@ -185,7 +185,7 @@ export class AuthService {
           throw new ForbiddenException({ message: 'Email not verified' });
         }
 
-        // TODO
+        // TODO: Handle MFA
         // if (user.mfaEnabled) {
         //   return this.handleMfaFlow(user);
         // }
