@@ -359,7 +359,7 @@ export class AuthService {
     const { userAgent } = metadata;
     try {
       payload = this._jwtService.verifyToken(refreshToken, true);
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException({ message: 'Invalid refresh token' });
     }
 
@@ -462,6 +462,67 @@ export class AuthService {
     });
   }
 
+  async requestPasswordReset(email: string, metadata: Record<string, any>) {
+    // Rate limiting check
+    const { ipAddress } = metadata;
+    await this.checkRateLimiting(ipAddress, 'passwordReset');
+
+    // Check if user exists
+    const user = await this._prismaService.user.findFirst({
+      where: {
+        emailAddress: email,
+        isActive: true,
+      },
+    });
+
+    // Security through obscurity - always return success
+    const msg =
+      'If your email is registered, you will receive reset instructions shortly';
+    if (!user) {
+      await this._prismaService.auditLog.create({
+        data: {
+          eventType: 'PASSWORD_RESET_NONEXISTENT_EMAIL',
+          severity: 'INFO',
+          details: { email },
+        },
+      });
+      return { message: msg };
+    }
+
+    // Generate and store reset token
+    const resetToken = randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(
+      Date.now() +
+        this._configService.get<number>('security.passwordReset.tokenExpiry'),
+    );
+
+    return await this._prismaService.$transaction(async (prisma) => {
+      // Update user with reset token
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordResetToken: resetToken,
+          passwordResetSentAt: resetTokenExpiry,
+        },
+      });
+
+      // TODO: Send Email
+
+      // Audit log
+      const requestMetadata = this.createUserMetadata(metadata);
+      await prisma.auditLog.create({
+        data: {
+          user: { connect: { id: user.id } },
+          eventType: 'PASSWORD_RESET_REQUESTED',
+          severity: 'INFO',
+          details: requestMetadata,
+        },
+      });
+
+      return { message: msg };
+    });
+  }
+
   /*
    * Private Methods
    */
@@ -481,7 +542,21 @@ export class AuthService {
     });
 
     if (count >= attempts) {
-      await this.createAuditLog(null, 'LOGIN_RATE_LIMIT_EXCEEDED', 'WARNING', {
+      let msg: string;
+      switch (type) {
+        case 'login':
+          msg = 'LOGIN_RATE_LIMIT_EXCEEDED';
+          break;
+        case 'register':
+          msg = 'REGISTRATION_RATE_LIMIT_EXCEEDED';
+          break;
+        case 'passwordReset':
+          msg = 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED';
+          break;
+        default:
+          break;
+      }
+      await this.createAuditLog(null, msg, 'WARNING', {
         ipAddress,
       });
       throw new UnauthorizedException({ message: 'Too many login attempts' });

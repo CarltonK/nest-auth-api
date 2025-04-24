@@ -19,6 +19,7 @@ import { LoginUserDto } from './dto/login.dto';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
 import { AuthGuard } from './auth.guard';
 import { RefreshTokenDto } from './dto/refresh.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -270,6 +271,57 @@ export class AuthController {
     const metadata = { ipAddress, userAgent };
 
     const response = await this._authService.refreshToken(dto, metadata);
+    return res.json(response);
+  }
+
+  /*
+   * Request password reset
+   */
+  @Post('request-password-reset')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 attempts per 5 minutes
+  @ApiOperation({
+    summary: 'Request password reset',
+    description: 'Initiate a password reset process for the given email',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Reset instructions sent if email exists',
+    schema: {
+      example: {
+        message:
+          'If your email is registered, you will receive reset instructions shortly.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Too many reset attempts',
+    schema: { example: { message: 'Too many password reset attempts' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    description: 'Validation error',
+    schema: {
+      example: {
+        message: 'Validation failed',
+        errors: { email: 'Invalid email' },
+      },
+    },
+  })
+  async requestPasswordReset(
+    @Req() request: any,
+    @Res() res: Response,
+    @Body() dto: RequestPasswordResetDto,
+  ) {
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._authService.requestPasswordReset(
+      dto.email,
+      metadata,
+    );
     return res.json(response);
   }
 }
