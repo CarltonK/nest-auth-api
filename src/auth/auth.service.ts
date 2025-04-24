@@ -20,6 +20,7 @@ import { lookup } from 'geoip-lite';
 import { LoginUserDto } from './dto/login.dto';
 import { JwtService } from './jwt.service';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
+import { RefreshTokenDto } from './dto/refresh.dto';
 
 @Injectable()
 export class AuthService {
@@ -158,6 +159,7 @@ export class AuthService {
 
   async loginUser(loginDto: LoginUserDto, metadata: Record<string, any>) {
     const { emailAddress, password } = loginDto;
+    const { userAgent } = metadata;
 
     // Request Metadata
     const requestMetadata = this.createUserMetadata(metadata);
@@ -217,10 +219,9 @@ export class AuthService {
         ]);
 
         // Encrypt and store refresh token
-        const hashedToken = await hash(
-          refreshToken,
-          this._configService.get<number>('security.password.bcryptRounds'),
-        );
+        const hashedToken = createHash('sha256')
+          .update(refreshToken)
+          .digest('hex');
 
         await prisma.authToken.create({
           data: {
@@ -228,7 +229,7 @@ export class AuthService {
             session: { connect: { id: session.id } },
             token: hashedToken,
             type: 'refresh',
-            userAgent: JSON.stringify(metadata),
+            userAgent,
             expiresAt: new Date(
               Date.now() +
                 this._configService.get<number>('jwt.refreshExpiry') * 1000,
@@ -349,6 +350,116 @@ export class AuthService {
       });
       throw error;
     }
+  }
+
+  async refreshToken(dto: RefreshTokenDto, metadata: Record<string, any>) {
+    // Validate the refresh token
+    let payload: Record<string, any>;
+    const { refreshToken } = dto;
+    const { userAgent } = metadata;
+    try {
+      payload = this._jwtService.verifyToken(refreshToken, true);
+    } catch (error) {
+      throw new UnauthorizedException({ message: 'Invalid refresh token' });
+    }
+
+    if (!payload || payload.type !== 'refresh') {
+      throw new UnauthorizedException({ message: 'Invalid refresh token' });
+    }
+
+    const { sub } = payload;
+
+    // Hash the token for DB lookup
+    const hashedToken = createHash('sha256').update(refreshToken).digest('hex');
+
+    // Verify token in database
+    const validToken = await this._prismaService.authToken.findFirst({
+      where: {
+        token: hashedToken,
+        type: 'refresh',
+        revoked: false,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!validToken) {
+      throw new UnauthorizedException({
+        message: 'Invalid or expired refresh token',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      // Revoke old refresh token
+      await prisma.authToken.update({
+        where: { id: validToken.id },
+        data: { revoked: true },
+      });
+
+      // Create new session
+      const session = await prisma.session.create({
+        data: {
+          user: { connect: { id: sub } },
+          expiresAt: new Date(
+            Date.now() + parseInt(process.env.SESSION_EXPIRY),
+          ),
+          metadata,
+        },
+      });
+
+      // Generate new tokens
+      const accessPayload = {
+        sub,
+        session: session.id,
+        type: 'access',
+      };
+      const refreshPayload = {
+        sub,
+        session: session.id,
+        type: 'refresh',
+      };
+
+      const [accessToken, refreshToken] = await Promise.all([
+        this._jwtService.signAccessToken(accessPayload),
+        this._jwtService.signRefreshToken(refreshPayload),
+      ]);
+
+      // Store new refresh token
+      const hashedToken = createHash('sha256')
+        .update(refreshToken)
+        .digest('hex');
+
+      await prisma.authToken.create({
+        data: {
+          user: { connect: { id: sub } },
+          session: { connect: { id: session.id } },
+          token: hashedToken,
+          type: 'refresh',
+          userAgent,
+          expiresAt: new Date(
+            Date.now() +
+              this._configService.get<number>('jwt.refreshExpiry') * 1000,
+          ),
+        },
+      });
+
+      // Create audit log
+      const requestMetadata = this.createUserMetadata(metadata);
+      await prisma.auditLog.create({
+        data: {
+          user: { connect: { id: sub } },
+          eventType: 'TOKEN_REFRESHED',
+          severity: 'INFO',
+          details: requestMetadata,
+        },
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: this._configService.get<number>('jwt.accessExpiry'),
+        sessionId: session.id,
+      };
+    });
   }
 
   /*

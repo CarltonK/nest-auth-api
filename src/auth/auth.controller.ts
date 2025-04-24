@@ -18,6 +18,7 @@ import { RegisterUserDto } from './dto/register.dto';
 import { LoginUserDto } from './dto/login.dto';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
 import { AuthGuard } from './auth.guard';
+import { RefreshTokenDto } from './dto/refresh.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -228,6 +229,47 @@ export class AuthController {
 
     const user = request.user;
     const response = await this._authService.logoutUser(user, metadata);
+    return res.json(response);
+  }
+
+  /*
+   * Refresh an access token
+   */
+  @UseGuards(AuthGuard)
+  @Post('refresh-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refresh an access token',
+    description: 'Obtain a new access token using a valid refresh token',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Token refreshed successfully',
+    schema: {
+      example: {
+        accessToken: 'new_jwt_token',
+        refreshToken: 'new_refresh_token',
+        expiresIn: 3600,
+        sessionId: 'new_session_id',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or expired refresh token',
+    schema: { example: { message: 'Invalid or expired refresh token' } },
+  })
+  async refreshToken(
+    @Req() request: any,
+    @Res() res: Response,
+    @Body() dto: RefreshTokenDto,
+  ) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._authService.refreshToken(dto, metadata);
     return res.json(response);
   }
 }
