@@ -34,13 +34,15 @@ $ npx prisma studio
 
 1. Define your models in prisma/schema.prisma
 2. Enter the following command to create a migration
-   ```bash
-   $ npx prisma migrate dev --name NAME_HERE
-   ```
+
+```bash
+$ npx prisma migrate dev --name NAME_HERE
+```
 3. [IFF(IF AND ONLY IF) SQL NEEDED] Enter the following command to create an empty migration
-   ```bash
-   $ npx prisma migrate dev --name NAME_HERE --create-only
-   ```
+
+```bash
+$ npx prisma migrate dev --name NAME_HERE --create-only
+```
 
 Replace <strong>NAME_HERE</strong> with the migration name.
 
