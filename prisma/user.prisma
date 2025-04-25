@@ -7,6 +7,8 @@ model User {
     emailVerifiedAt         DateTime?
     emailVerificationToken  String?
     emailVerificationSentAt DateTime?
+    passwordResetToken      String?
+    passwordResetSentAt     DateTime?
     metadata                Json?
     mfaEnabled              Boolean           @default(false)
     isActive                Boolean           @default(false)

@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Response, Request } from 'express';
@@ -16,6 +17,10 @@ import { Throttle } from '@nestjs/throttler';
 import { RegisterUserDto } from './dto/register.dto';
 import { LoginUserDto } from './dto/login.dto';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
+import { AuthGuard } from './auth.guard';
+import { RefreshTokenDto } from './dto/refresh.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { PasswordResetDto } from './dto/password-reset.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -86,7 +91,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 attempts per 5 minutes
   @ApiOperation({
-    summary: 'Authenticate user',
+    summary: 'Authenticate a user',
     description: 'Performs user authentication with multiple security checks',
   })
   @ApiResponse({
@@ -164,6 +169,11 @@ export class AuthController {
    * Verify a users' email
    */
   @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Verify a users' email",
+    description: 'Performs email verification',
+  })
   @ApiQuery({ name: 'emailAddress', type: String, required: true })
   @ApiQuery({ name: 'token', type: String, required: true })
   @ApiResponse({
@@ -190,6 +200,187 @@ export class AuthController {
       verifyEmailDto,
       metadata,
     );
+    return res.json(response);
+  }
+
+  /*
+   * Logout a user
+   */
+  @UseGuards(AuthGuard)
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Logout a user',
+    description: 'Invalidates current session and refresh tokens',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Logged out successfully',
+    schema: { example: { message: 'Logged out successfully' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized',
+    schema: { example: { message: 'Invalid token' } },
+  })
+  async logout(@Req() request: any, @Res() res: Response) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const user = request.user;
+    const response = await this._authService.logoutUser(user, metadata);
+    return res.json(response);
+  }
+
+  /*
+   * Refresh an access token
+   */
+  @UseGuards(AuthGuard)
+  @Post('refresh-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Refresh an access token',
+    description: 'Obtain a new access token using a valid refresh token',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Token refreshed successfully',
+    schema: {
+      example: {
+        accessToken: 'new_jwt_token',
+        refreshToken: 'new_refresh_token',
+        expiresIn: 3600,
+        sessionId: 'new_session_id',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or expired refresh token',
+    schema: { example: { message: 'Invalid or expired refresh token' } },
+  })
+  async refreshToken(
+    @Req() request: any,
+    @Res() res: Response,
+    @Body() dto: RefreshTokenDto,
+  ) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._authService.refreshToken(dto, metadata);
+    return res.json(response);
+  }
+
+  /*
+   * Request password reset
+   */
+  @Post('request-password-reset')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 attempts per 5 minutes
+  @ApiOperation({
+    summary: 'Request password reset',
+    description: 'Initiate a password reset process for the given email',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Reset instructions sent if email exists',
+    schema: {
+      example: {
+        message:
+          'If your email is registered, you will receive reset instructions shortly.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Too many reset attempts',
+    schema: { example: { message: 'Too many password reset attempts' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    description: 'Validation error',
+    schema: {
+      example: {
+        message: 'Validation failed',
+        errors: { email: 'Invalid email' },
+      },
+    },
+  })
+  async requestPasswordReset(
+    @Req() request: any,
+    @Res() res: Response,
+    @Body() dto: RequestPasswordResetDto,
+  ) {
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._authService.requestPasswordReset(
+      dto.emailAddress,
+      metadata,
+    );
+    return res.json(response);
+  }
+
+  /*
+   * Reset password with token
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 attempts per 5 minutes
+  @ApiOperation({
+    summary: 'Reset password',
+    description: 'Reset user password using a valid reset token',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Password reset successful',
+    schema: {
+      example: {
+        message:
+          'Password has been reset successfully. Please login with your new password.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or expired reset token',
+    schema: { example: { message: 'Invalid or expired reset token' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    description: 'Validation error or weak password',
+    schema: {
+      example: {
+        message: 'Password is too weak',
+        feedback: {
+          warning: 'This is a very common password',
+          suggestions: ['Add more words', 'Avoid common phrases'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Too many reset attempts',
+    schema: {
+      example: { message: 'Too many reset attempts. Please try again later.' },
+    },
+  })
+  async resetPassword(
+    @Req() request: any,
+    @Res() res: Response,
+    @Body() dto: PasswordResetDto,
+  ) {
+    const ipAddress = request.ip;
+    const metadata = { ipAddress };
+
+    const response = await this._authService.resetPassword(dto, metadata);
+
     return res.json(response);
   }
 }

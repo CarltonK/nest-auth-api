@@ -20,6 +20,8 @@ import { lookup } from 'geoip-lite';
 import { LoginUserDto } from './dto/login.dto';
 import { JwtService } from './jwt.service';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
+import { RefreshTokenDto } from './dto/refresh.dto';
+import { PasswordResetDto } from './dto/password-reset.dto';
 
 @Injectable()
 export class AuthService {
@@ -158,6 +160,7 @@ export class AuthService {
 
   async loginUser(loginDto: LoginUserDto, metadata: Record<string, any>) {
     const { emailAddress, password } = loginDto;
+    const { userAgent } = metadata;
 
     // Request Metadata
     const requestMetadata = this.createUserMetadata(metadata);
@@ -183,7 +186,7 @@ export class AuthService {
           throw new ForbiddenException({ message: 'Email not verified' });
         }
 
-        // TODO
+        // TODO: Handle MFA
         // if (user.mfaEnabled) {
         //   return this.handleMfaFlow(user);
         // }
@@ -217,10 +220,9 @@ export class AuthService {
         ]);
 
         // Encrypt and store refresh token
-        const hashedToken = await hash(
-          refreshToken,
-          this._configService.get<number>('security.password.bcryptRounds'),
-        );
+        const hashedToken = createHash('sha256')
+          .update(refreshToken)
+          .digest('hex');
 
         await prisma.authToken.create({
           data: {
@@ -228,7 +230,7 @@ export class AuthService {
             session: { connect: { id: session.id } },
             token: hashedToken,
             type: 'refresh',
-            userAgent: JSON.stringify(metadata),
+            userAgent,
             expiresAt: new Date(
               Date.now() +
                 this._configService.get<number>('jwt.refreshExpiry') * 1000,
@@ -312,6 +314,338 @@ export class AuthService {
     });
   }
 
+  async logoutUser(
+    payload: Record<string, any>,
+    metadata: Record<string, any>,
+  ) {
+    const { sub: userId, session: sessionId } = payload;
+    try {
+      return this._prismaService.$transaction(async (prisma) => {
+        // Revoke current session
+        await prisma.session.update({
+          where: { id: sessionId, userId },
+          data: { isActive: false },
+        });
+
+        // Revoke all refresh tokens
+        await prisma.authToken.updateMany({
+          where: { userId, type: 'refresh', revoked: false },
+          data: { revoked: true },
+        });
+
+        // Audit Log
+        await prisma.auditLog.create({
+          data: {
+            user: { connect: { id: userId } },
+            eventType: 'USER_LOGGED_OUT',
+            severity: 'INFO',
+            details: { ...metadata, sessionId },
+          },
+        });
+
+        return { message: 'Logged out successfully' };
+      });
+    } catch (error) {
+      await this.createAuditLog(null, 'LOGOUT_FAILED', 'ERROR', {
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  async refreshToken(dto: RefreshTokenDto, metadata: Record<string, any>) {
+    // Validate the refresh token
+    let payload: Record<string, any>;
+    const { refreshToken } = dto;
+    const { userAgent } = metadata;
+    try {
+      payload = this._jwtService.verifyToken(refreshToken, true);
+    } catch {
+      throw new UnauthorizedException({ message: 'Invalid refresh token' });
+    }
+
+    if (!payload || payload.type !== 'refresh') {
+      throw new UnauthorizedException({ message: 'Invalid refresh token' });
+    }
+
+    const { sub } = payload;
+
+    // Hash the token for DB lookup
+    const hashedToken = createHash('sha256').update(refreshToken).digest('hex');
+
+    // Verify token in database
+    const validToken = await this._prismaService.authToken.findFirst({
+      where: {
+        token: hashedToken,
+        type: 'refresh',
+        revoked: false,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!validToken) {
+      throw new UnauthorizedException({
+        message: 'Invalid or expired refresh token',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      // Revoke old refresh token
+      await prisma.authToken.update({
+        where: { id: validToken.id },
+        data: { revoked: true },
+      });
+
+      // Create new session
+      const session = await prisma.session.create({
+        data: {
+          user: { connect: { id: sub } },
+          expiresAt: new Date(
+            Date.now() + parseInt(process.env.SESSION_EXPIRY),
+          ),
+          metadata,
+        },
+      });
+
+      // Generate new tokens
+      const accessPayload = {
+        sub,
+        session: session.id,
+        type: 'access',
+      };
+      const refreshPayload = {
+        sub,
+        session: session.id,
+        type: 'refresh',
+      };
+
+      const [accessToken, refreshToken] = await Promise.all([
+        this._jwtService.signAccessToken(accessPayload),
+        this._jwtService.signRefreshToken(refreshPayload),
+      ]);
+
+      // Store new refresh token
+      const hashedToken = createHash('sha256')
+        .update(refreshToken)
+        .digest('hex');
+
+      await prisma.authToken.create({
+        data: {
+          user: { connect: { id: sub } },
+          session: { connect: { id: session.id } },
+          token: hashedToken,
+          type: 'refresh',
+          userAgent,
+          expiresAt: new Date(
+            Date.now() +
+              this._configService.get<number>('jwt.refreshExpiry') * 1000,
+          ),
+        },
+      });
+
+      // Create audit log
+      const requestMetadata = this.createUserMetadata(metadata);
+      await prisma.auditLog.create({
+        data: {
+          user: { connect: { id: sub } },
+          eventType: 'TOKEN_REFRESHED',
+          severity: 'INFO',
+          details: requestMetadata,
+        },
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: this._configService.get<number>('jwt.accessExpiry'),
+        sessionId: session.id,
+      };
+    });
+  }
+
+  async requestPasswordReset(email: string, metadata: Record<string, any>) {
+    // Rate limiting check
+    const { ipAddress } = metadata;
+    await this.checkRateLimiting(ipAddress, 'passwordReset');
+
+    // Check if user exists
+    const user = await this._prismaService.user.findFirst({
+      where: {
+        emailAddress: email,
+        isActive: true,
+      },
+    });
+
+    // Security through obscurity - always return success
+    const msg =
+      'If your email is registered, you will receive reset instructions shortly';
+    if (!user) {
+      await this._prismaService.auditLog.create({
+        data: {
+          eventType: 'PASSWORD_RESET_NONEXISTENT_EMAIL',
+          severity: 'INFO',
+          details: { email },
+        },
+      });
+      return { message: msg };
+    }
+
+    // Generate and store reset token
+    const resetToken = randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(
+      Date.now() +
+        this._configService.get<number>('security.passwordReset.tokenExpiry'),
+    );
+
+    return await this._prismaService.$transaction(async (prisma) => {
+      // Update user with reset token
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordResetToken: resetToken,
+          passwordResetSentAt: resetTokenExpiry,
+        },
+      });
+
+      // TODO: Send Email
+
+      // Audit log
+      const requestMetadata = this.createUserMetadata(metadata);
+      await prisma.auditLog.create({
+        data: {
+          user: { connect: { id: user.id } },
+          eventType: 'PASSWORD_RESET_REQUESTED',
+          severity: 'INFO',
+          details: requestMetadata,
+        },
+      });
+
+      return { message: msg };
+    });
+  }
+
+  async resetPassword(dto: PasswordResetDto, metadata: Record<string, any>) {
+    // Rate limiting check
+    const { ipAddress } = metadata;
+    await this.checkRateLimiting(ipAddress, 'passwordResetVerify');
+
+    const requestMetadata = this.createUserMetadata(metadata);
+
+    const { password, resetToken } = dto;
+
+    // Validate password strength
+    const passwordStrength = zxcvbn(password);
+    if (passwordStrength.score < 3) {
+      throw new BadRequestException({
+        message: 'Password is too weak',
+        feedback: passwordStrength.feedback,
+      });
+    }
+
+    // Check compromised password
+    if (
+      this._configService.get<boolean>('security.password.checkCompromised')
+    ) {
+      const isCompromised = await this.checkCompromisedPassword(password);
+      if (isCompromised) {
+        throw new BadRequestException({
+          message:
+            'This password has been found in data breaches. Please choose a different password.',
+        });
+      }
+    }
+
+    // Find user with valid reset token
+    const user = await this._prismaService.user.findFirst({
+      where: {
+        passwordResetToken: resetToken,
+        passwordResetSentAt: {
+          gte: new Date(
+            Date.now() -
+              this._configService.get<number>(
+                'security.passwordReset.tokenExpiry',
+              ),
+          ),
+        },
+        isActive: true,
+      },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user) {
+      await this._prismaService.auditLog.create({
+        data: {
+          eventType: 'PASSWORD_RESET_INVALID_TOKEN',
+          severity: 'WARNING',
+          details: requestMetadata,
+        },
+      });
+      throw new BadRequestException({
+        message: 'Invalid or expired reset token',
+      });
+    }
+
+    // Verify new password isn't the same as current
+    const isSamePassword = await compare(password, user.passwordHash);
+    if (isSamePassword) {
+      throw new UnprocessableEntityException({
+        message: 'New password must be different from current password',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      try {
+        // Generate password hash
+        const passwordHash = await hash(
+          password,
+          this._configService.get<number>('security.password.bcryptRounds'),
+        );
+        const now = new Date();
+
+        // Update password
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            passwordHash,
+            passwordResetToken: null,
+            passwordResetSentAt: null,
+            passwordChangedAt: now,
+            failedAttemptsCount: 0, // Reset failed attempts
+            isLocked: false, // Unlock if previously locked
+          },
+        });
+
+        // Revoke all sessions and tokens
+        await prisma.authToken.deleteMany({
+          where: { user: { id: user.id } },
+        });
+
+        await prisma.session.deleteMany({
+          where: { user: { id: user.id } },
+        });
+
+        // Audit log
+        await prisma.auditLog.create({
+          data: {
+            user: { connect: { id: user.id } },
+            eventType: 'PASSWORD_RESET_SUCCESSFUL',
+            severity: 'INFO',
+            details: requestMetadata,
+          },
+        });
+
+        // TODO: Send notification email
+
+        return {
+          message:
+            'Password has been reset successfully. Please login with your new password.',
+        };
+      } catch (error) {
+        throw error;
+      }
+    });
+  }
+
   /*
    * Private Methods
    */
@@ -331,10 +665,30 @@ export class AuthService {
     });
 
     if (count >= attempts) {
-      await this.createAuditLog(null, 'LOGIN_RATE_LIMIT_EXCEEDED', 'WARNING', {
+      let msg: string;
+      let message: string;
+      switch (type) {
+        case 'login':
+          msg = 'LOGIN_RATE_LIMIT_EXCEEDED';
+          message = 'login';
+          break;
+        case 'register':
+          msg = 'REGISTRATION_RATE_LIMIT_EXCEEDED';
+          message = 'registration';
+          break;
+        case 'passwordReset':
+          msg = 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED';
+          message = 'reset';
+          break;
+        default:
+          break;
+      }
+      await this.createAuditLog(null, msg, 'WARNING', {
         ipAddress,
       });
-      throw new UnauthorizedException({ message: 'Too many login attempts' });
+      throw new UnauthorizedException({
+        message: `Too many ${message} attempts. Please try again later`,
+      });
     }
   }
 
@@ -349,6 +703,11 @@ export class AuthService {
         emailAddress,
         createdAt: { gte: new Date(Date.now() - 3600000) },
       },
+    });
+
+    await this._prismaService.user.update({
+      where: { emailAddress },
+      data: { failedAttemptsCount: { increment: 1 } },
     });
 
     if (

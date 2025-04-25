@@ -21,6 +21,9 @@ export default () => ({
       history: parseInt(process.env.PASSWORD_HISTORY_LIMIT) || 5,
       checkCompromised: process.env.PASSWORD_CHECK_COMPROMISED === 'true',
     },
+    passwordReset: {
+      tokenExpiry: parseInt(process.env.PASSWORD_RESET_TOKEN_EXPIRY) || 300000, // 5 minutes
+    },
     rateLimit: {
       register: {
         attempts: parseInt(process.env.REGISTER_RATE_LIMIT_ATTEMPTS) || 5,
@@ -30,6 +33,18 @@ export default () => ({
       login: {
         attempts: parseInt(process.env.LOGIN_RATE_LIMIT_ATTEMPTS) || 5,
         timeframe: parseInt(process.env.LOGIN_RATE_LIMIT_TIMEFRAME) || 300000,
+      },
+      passwordReset: {
+        attempts: parseInt(process.env.PASSWORD_RESET_RATE_LIMIT_ATTEMPTS) || 5,
+        timeframe:
+          parseInt(process.env.PASSWORD_RESET_RATE_LIMIT_TIMEFRAME) || 300000,
+      },
+      passwordResetVerify: {
+        attempts:
+          parseInt(process.env.PASSWORD_RESET_VERIFY_RATE_LIMIT_ATTEMPTS) || 5,
+        timeframe:
+          parseInt(process.env.PASSWORD_RESET_VERIFY_RATE_LIMIT_TIMEFRAME) ||
+          300000,
       },
     },
     mfa: {
@@ -61,12 +76,19 @@ export const validationSchema = Joi.object({
   PASSWORD_BCRYPT_ROUNDS: Joi.number().min(10).max(20).default(12),
   PASSWORD_HISTORY_LIMIT: Joi.number().min(1).default(5),
   PASSWORD_CHECK_COMPROMISED: Joi.boolean().default(true),
+  PASSWORD_RESET_TOKEN_EXPIRY: Joi.number().default(300000),
 
   // Rate limiting
   LOGIN_RATE_LIMIT_ATTEMPTS: Joi.number().min(1).default(5),
   LOGIN_RATE_LIMIT_TIMEFRAME: Joi.number().min(60000).default(300000),
   REGISTER_RATE_LIMIT_ATTEMPTS: Joi.number().min(1).default(5),
   REGISTER_RATE_LIMIT_TIMEFRAME: Joi.number().min(60000).default(300000),
+  PASSWORD_RESET_RATE_LIMIT_ATTEMPTS: Joi.number().min(1).default(5),
+  PASSWORD_RESET_RATE_LIMIT_TIMEFRAME: Joi.number().min(60000).default(300000),
+  PASSWORD_RESET_VERIFY_RATE_LIMIT_ATTEMPTS: Joi.number().min(1).default(5),
+  PASSWORD_RESET_VERIFY_RATE_LIMIT_TIMEFRAME: Joi.number()
+    .min(60000)
+    .default(300000),
 
   // JWT Configuration
   JWT_ACCESS_SECRET: Joi.string().required(),
