@@ -23,6 +23,7 @@ import { VerifyEmailDto } from './dto/verifyEmail.dto';
 import { RefreshTokenDto } from './dto/refresh.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
 
+// TODO: Use a Password Service
 @Injectable()
 export class AuthService {
   private readonly _logger: Logger;
