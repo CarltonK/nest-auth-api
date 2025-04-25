@@ -595,55 +595,51 @@ export class AuthService {
     }
 
     return this._prismaService.$transaction(async (prisma) => {
-      try {
-        // Generate password hash
-        const passwordHash = await hash(
-          password,
-          this._configService.get<number>('security.password.bcryptRounds'),
-        );
-        const now = new Date();
+      // Generate password hash
+      const passwordHash = await hash(
+        password,
+        this._configService.get<number>('security.password.bcryptRounds'),
+      );
+      const now = new Date();
 
-        // Update password
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            passwordHash,
-            passwordResetToken: null,
-            passwordResetSentAt: null,
-            passwordChangedAt: now,
-            failedAttemptsCount: 0, // Reset failed attempts
-            isLocked: false, // Unlock if previously locked
-          },
-        });
+      // Update password
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          passwordResetToken: null,
+          passwordResetSentAt: null,
+          passwordChangedAt: now,
+          failedAttemptsCount: 0, // Reset failed attempts
+          isLocked: false, // Unlock if previously locked
+        },
+      });
 
-        // Revoke all sessions and tokens
-        await prisma.authToken.deleteMany({
-          where: { user: { id: user.id } },
-        });
+      // Revoke all sessions and tokens
+      await prisma.authToken.deleteMany({
+        where: { user: { id: user.id } },
+      });
 
-        await prisma.session.deleteMany({
-          where: { user: { id: user.id } },
-        });
+      await prisma.session.deleteMany({
+        where: { user: { id: user.id } },
+      });
 
-        // Audit log
-        await prisma.auditLog.create({
-          data: {
-            user: { connect: { id: user.id } },
-            eventType: 'PASSWORD_RESET_SUCCESSFUL',
-            severity: 'INFO',
-            details: requestMetadata,
-          },
-        });
+      // Audit log
+      await prisma.auditLog.create({
+        data: {
+          user: { connect: { id: user.id } },
+          eventType: 'PASSWORD_RESET_SUCCESSFUL',
+          severity: 'INFO',
+          details: requestMetadata,
+        },
+      });
 
-        // TODO: Send notification email
+      // TODO: Send notification email
 
-        return {
-          message:
-            'Password has been reset successfully. Please login with your new password.',
-        };
-      } catch (error) {
-        throw error;
-      }
+      return {
+        message:
+          'Password has been reset successfully. Please login with your new password.',
+      };
     });
   }
 
