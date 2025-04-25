@@ -39,6 +39,13 @@ export default () => ({
         timeframe:
           parseInt(process.env.PASSWORD_RESET_RATE_LIMIT_TIMEFRAME) || 300000,
       },
+      passwordResetVerify: {
+        attempts:
+          parseInt(process.env.PASSWORD_RESET_VERIFY_RATE_LIMIT_ATTEMPTS) || 5,
+        timeframe:
+          parseInt(process.env.PASSWORD_RESET_VERIFY_RATE_LIMIT_TIMEFRAME) ||
+          300000,
+      },
     },
     mfa: {
       tokenExpiry: parseInt(process.env.MFA_TOKEN_EXPIRY) || 300000, // 5 minutes
@@ -78,6 +85,10 @@ export const validationSchema = Joi.object({
   REGISTER_RATE_LIMIT_TIMEFRAME: Joi.number().min(60000).default(300000),
   PASSWORD_RESET_RATE_LIMIT_ATTEMPTS: Joi.number().min(1).default(5),
   PASSWORD_RESET_RATE_LIMIT_TIMEFRAME: Joi.number().min(60000).default(300000),
+  PASSWORD_RESET_VERIFY_RATE_LIMIT_ATTEMPTS: Joi.number().min(1).default(5),
+  PASSWORD_RESET_VERIFY_RATE_LIMIT_TIMEFRAME: Joi.number()
+    .min(60000)
+    .default(300000),
 
   // JWT Configuration
   JWT_ACCESS_SECRET: Joi.string().required(),

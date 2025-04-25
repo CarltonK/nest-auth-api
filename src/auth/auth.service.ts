@@ -21,6 +21,7 @@ import { LoginUserDto } from './dto/login.dto';
 import { JwtService } from './jwt.service';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
 import { RefreshTokenDto } from './dto/refresh.dto';
+import { PasswordResetDto } from './dto/password-reset.dto';
 
 @Injectable()
 export class AuthService {
@@ -523,6 +524,128 @@ export class AuthService {
     });
   }
 
+  async resetPassword(dto: PasswordResetDto, metadata: Record<string, any>) {
+    // Rate limiting check
+    const { ipAddress } = metadata;
+    await this.checkRateLimiting(ipAddress, 'passwordResetVerify');
+
+    const requestMetadata = this.createUserMetadata(metadata);
+
+    const { password, resetToken } = dto;
+
+    // Validate password strength
+    const passwordStrength = zxcvbn(password);
+    if (passwordStrength.score < 3) {
+      throw new BadRequestException({
+        message: 'Password is too weak',
+        feedback: passwordStrength.feedback,
+      });
+    }
+
+    // Check compromised password
+    if (
+      this._configService.get<boolean>('security.password.checkCompromised')
+    ) {
+      const isCompromised = await this.checkCompromisedPassword(password);
+      if (isCompromised) {
+        throw new BadRequestException({
+          message:
+            'This password has been found in data breaches. Please choose a different password.',
+        });
+      }
+    }
+
+    // Find user with valid reset token
+    const user = await this._prismaService.user.findFirst({
+      where: {
+        passwordResetToken: resetToken,
+        passwordResetSentAt: {
+          gte: new Date(
+            Date.now() -
+              this._configService.get<number>(
+                'security.passwordReset.tokenExpiry',
+              ),
+          ),
+        },
+        isActive: true,
+      },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!user) {
+      await this._prismaService.auditLog.create({
+        data: {
+          eventType: 'PASSWORD_RESET_INVALID_TOKEN',
+          severity: 'WARNING',
+          details: requestMetadata,
+        },
+      });
+      throw new BadRequestException({
+        message: 'Invalid or expired reset token',
+      });
+    }
+
+    // Verify new password isn't the same as current
+    const isSamePassword = await compare(password, user.passwordHash);
+    if (isSamePassword) {
+      throw new UnprocessableEntityException({
+        message: 'New password must be different from current password',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      try {
+        // Generate password hash
+        const passwordHash = await hash(
+          password,
+          this._configService.get<number>('security.password.bcryptRounds'),
+        );
+        const now = new Date();
+
+        // Update password
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            passwordHash,
+            passwordResetToken: null,
+            passwordResetSentAt: null,
+            passwordChangedAt: now,
+            failedAttemptsCount: 0, // Reset failed attempts
+            isLocked: false, // Unlock if previously locked
+          },
+        });
+
+        // Revoke all sessions and tokens
+        await prisma.authToken.deleteMany({
+          where: { user: { id: user.id } },
+        });
+
+        await prisma.session.deleteMany({
+          where: { user: { id: user.id } },
+        });
+
+        // Audit log
+        await prisma.auditLog.create({
+          data: {
+            user: { connect: { id: user.id } },
+            eventType: 'PASSWORD_RESET_SUCCESSFUL',
+            severity: 'INFO',
+            details: requestMetadata,
+          },
+        });
+
+        // TODO: Send notification email
+
+        return {
+          message:
+            'Password has been reset successfully. Please login with your new password.',
+        };
+      } catch (error) {
+        throw error;
+      }
+    });
+  }
+
   /*
    * Private Methods
    */
@@ -543,15 +666,19 @@ export class AuthService {
 
     if (count >= attempts) {
       let msg: string;
+      let message: string;
       switch (type) {
         case 'login':
           msg = 'LOGIN_RATE_LIMIT_EXCEEDED';
+          message = 'login';
           break;
         case 'register':
           msg = 'REGISTRATION_RATE_LIMIT_EXCEEDED';
+          message = 'registration';
           break;
         case 'passwordReset':
           msg = 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED';
+          message = 'reset';
           break;
         default:
           break;
@@ -559,7 +686,9 @@ export class AuthService {
       await this.createAuditLog(null, msg, 'WARNING', {
         ipAddress,
       });
-      throw new UnauthorizedException({ message: 'Too many login attempts' });
+      throw new UnauthorizedException({
+        message: `Too many ${message} attempts. Please try again later`,
+      });
     }
   }
 
@@ -574,6 +703,11 @@ export class AuthService {
         emailAddress,
         createdAt: { gte: new Date(Date.now() - 3600000) },
       },
+    });
+
+    await this._prismaService.user.update({
+      where: { emailAddress },
+      data: { failedAttemptsCount: { increment: 1 } },
     });
 
     if (

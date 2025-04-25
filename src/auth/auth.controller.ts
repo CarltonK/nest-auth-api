@@ -20,6 +20,7 @@ import { VerifyEmailDto } from './dto/verifyEmail.dto';
 import { AuthGuard } from './auth.guard';
 import { RefreshTokenDto } from './dto/refresh.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { PasswordResetDto } from './dto/password-reset.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -319,9 +320,67 @@ export class AuthController {
     const metadata = { ipAddress, userAgent };
 
     const response = await this._authService.requestPasswordReset(
-      dto.email,
+      dto.emailAddress,
       metadata,
     );
+    return res.json(response);
+  }
+
+  /*
+   * Reset password with token
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 300000 } }) // 5 attempts per 5 minutes
+  @ApiOperation({
+    summary: 'Reset password',
+    description: 'Reset user password using a valid reset token',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Password reset successful',
+    schema: {
+      example: {
+        message:
+          'Password has been reset successfully. Please login with your new password.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or expired reset token',
+    schema: { example: { message: 'Invalid or expired reset token' } },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNPROCESSABLE_ENTITY,
+    description: 'Validation error or weak password',
+    schema: {
+      example: {
+        message: 'Password is too weak',
+        feedback: {
+          warning: 'This is a very common password',
+          suggestions: ['Add more words', 'Avoid common phrases'],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Too many reset attempts',
+    schema: {
+      example: { message: 'Too many reset attempts. Please try again later.' },
+    },
+  })
+  async resetPassword(
+    @Req() request: any,
+    @Res() res: Response,
+    @Body() dto: PasswordResetDto,
+  ) {
+    const ipAddress = request.ip;
+    const metadata = { ipAddress };
+
+    const response = await this._authService.resetPassword(dto, metadata);
+
     return res.json(response);
   }
 }
