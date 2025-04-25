@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   Logger,
   UnauthorizedException,
   UnprocessableEntityException,
@@ -22,6 +23,8 @@ import { JwtService } from './jwt.service';
 import { VerifyEmailDto } from './dto/verifyEmail.dto';
 import { RefreshTokenDto } from './dto/refresh.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
+import { OAuthCallbackDto } from './dto/oauth-callback.dto';
+import { OAuthService } from './oauth.service';
 
 // TODO: Use a Password Service
 @Injectable()
@@ -34,6 +37,9 @@ export class AuthService {
     @Inject(PrismaService) private readonly _prismaService: PrismaService,
     @Inject(HttpService) private readonly _httpService: HttpService,
     @Inject(JwtService) private readonly _jwtService: JwtService,
+    @Inject(OAuthService) private readonly _oauthService: OAuthService,
+    @Inject('OAUTH_PROVIDERS')
+    private readonly _oauthProviders: Record<string, any>,
   ) {
     this._logger = new Logger(AuthService.name);
   }
@@ -643,6 +649,144 @@ export class AuthService {
     });
   }
 
+  async initiateOauth(provider: string) {
+    const config = this._oauthProviders[provider];
+
+    if (!config || !config.enabled) {
+      throw new BadRequestException({
+        message: 'Invalid or disabled OAuth provider',
+      });
+    }
+
+    const state = randomBytes(16).toString('hex');
+
+    // Sign via JWT to be verified in callback
+    const signedState = await this._jwtService.sign({ state, provider });
+
+    const queryParams = new URLSearchParams({
+      client_id: config.client_id,
+      redirect_uri: config.redirect_uri,
+      response_type: 'code',
+      scope: config.scopes.join(' '),
+      state: signedState,
+    });
+
+    return `${config.auth_endpoint}?${queryParams.toString()}`;
+  }
+
+  async handleOAuthCallback(oauthCallbackDto: OAuthCallbackDto) {
+    const { state, code, error, errorDescription } = oauthCallbackDto;
+
+    // Handle OAuth error
+    if (error) {
+      await this.createAuditLog(null, 'OAUTH_ERROR', 'WARNING', {
+        error,
+        errorDescription,
+      });
+      throw new BadRequestException({ message: `OAuth error: ${error}` });
+    }
+
+    // Verify state and check code
+    const statePayload = await this._jwtService.verify(state);
+    const { provider } = statePayload;
+
+    if (!statePayload.state) {
+      await this.createAuditLog(null, 'OAUTH_STATE_MISMATCH', 'WARNING', {});
+      throw new BadRequestException({
+        message: 'Invalid state or missing code',
+      });
+    }
+
+    try {
+      // Exchange code for tokens
+      const tokenResponse = await this._oauthService.exchangeCodeForTokens(
+        provider,
+        code,
+      );
+      if (!tokenResponse?.access_token) {
+        throw new BadRequestException({
+          message: 'Failed to obtain access token',
+        });
+      }
+
+      // Fetch user info
+      const userInfo = await this._oauthService.fetchUserInfo(
+        provider,
+        tokenResponse.access_token,
+      );
+      if (!userInfo?.email) {
+        throw new BadRequestException({
+          message: 'Failed to obtain user information',
+        });
+      }
+
+      // Process user authentication
+      const result = await this.processOAuthUser(
+        provider,
+        userInfo,
+        tokenResponse,
+      );
+
+      const { userId, sessionId } = result;
+
+      // Generate new tokens
+      const accessPayload = {
+        sub: userId,
+        session: sessionId,
+        type: 'access',
+      };
+      const refreshPayload = {
+        sub: userId,
+        session: sessionId,
+        type: 'refresh',
+      };
+
+      const [accessToken, refreshToken] = await Promise.all([
+        this._jwtService.signAccessToken(accessPayload),
+        this._jwtService.signRefreshToken(refreshPayload),
+      ]);
+
+      // Store new refresh token
+      const hashedToken = createHash('sha256')
+        .update(refreshToken)
+        .digest('hex');
+
+      await this._prismaService.authToken.create({
+        data: {
+          user: { connect: { id: userId } },
+          session: { connect: { id: sessionId } },
+          token: hashedToken,
+          type: 'refresh',
+          expiresAt: new Date(
+            Date.now() +
+              this._configService.get<number>('jwt.refreshExpiry') * 1000,
+          ),
+        },
+      });
+
+      await this.createAuditLog(userId, 'OAUTH_LOGIN_SUCCESS', 'INFO', {
+        provider,
+      });
+
+      return {
+        accessToken,
+        refreshToken,
+        expiresIn: this._configService.get<number>('jwt.accessExpiry'),
+        sessionId: sessionId,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      await this.createAuditLog(null, 'OAUTH_CALLBACK_ERROR', 'ERROR', {
+        error: error.message,
+      });
+      throw new InternalServerErrorException({
+        message: 'OAuth processing failed',
+      });
+    }
+  }
+
   /*
    * Private Methods
    */
@@ -833,5 +977,99 @@ export class AuthService {
       'security.email.verification.expiryHours',
     );
     return new Date(Date.now() - expiryHours * 60 * 60 * 1000);
+  }
+
+  private processOAuthUser(
+    provider: string,
+    userInfo: any,
+    tokenResponse: any,
+  ) {
+    return this._prismaService.$transaction(async (prisma) => {
+      // Find or create user
+      const user = await prisma.user.upsert({
+        where: { emailAddress: userInfo.email },
+        create: {
+          emailAddress: userInfo.email,
+          firstName: userInfo.given_name || userInfo.name?.split(' ')[0],
+          lastName: userInfo.family_name || userInfo.name?.split(' ')[1],
+          // Generate a random password for OAuth users
+          passwordHash: await hash(Math.random().toString(36), 10),
+          emailVerifiedAt: new Date(),
+          isActive: true,
+          metadata: {
+            name: userInfo.name || null,
+            picture: userInfo.picture || null,
+          },
+          passwordChangedAt: new Date(),
+        },
+        update: {
+          lastLoginAt: new Date(),
+          metadata: {
+            name: userInfo.name || null,
+            picture: userInfo.picture || null,
+          },
+        },
+      });
+
+      // Find provider in database
+      const oauthProvider = await prisma.authOauthprovider.findFirst({
+        where: { name: provider },
+      });
+
+      if (!oauthProvider) {
+        throw new BadRequestException({ message: 'Invalid OAuth provider' });
+      }
+
+      // Create or update identity
+      await prisma.authUseridentity.upsert({
+        where: {
+          userId_providerId: {
+            userId: user.id,
+            providerId: oauthProvider.id,
+          },
+        },
+        create: {
+          uuid: crypto.randomUUID(),
+          userId: user.id,
+          providerId: oauthProvider.id,
+          providerUserId: userInfo.sub,
+          accessToken: tokenResponse.access_token,
+          refreshToken: tokenResponse.refresh_token || null,
+          tokenExpiresAt: tokenResponse.expires_in
+            ? new Date(Date.now() + tokenResponse.expires_in * 1000)
+            : null,
+        },
+        update: {
+          providerUserId: userInfo.sub,
+          accessToken: tokenResponse.access_token,
+          refreshToken: tokenResponse.refresh_token || null,
+          tokenExpiresAt: tokenResponse.expires_in
+            ? new Date(Date.now() + tokenResponse.expires_in * 1000)
+            : null,
+          updatedAt: new Date(),
+        },
+      });
+
+      // Create session
+      const session = await prisma.session.create({
+        data: {
+          user: { connect: { id: user.id } },
+          authToken: {
+            create: {
+              userId: user.id,
+              token: `${crypto.randomUUID()}`,
+              type: '',
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            },
+          },
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        },
+      });
+
+      return {
+        userId: user.id,
+        sessionId: session.id,
+      };
+    });
   }
 }

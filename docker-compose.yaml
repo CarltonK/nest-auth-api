@@ -49,6 +49,9 @@ services:
       REGISTER_RATE_LIMIT_TIMEFRAME: '300000'
       JWT_ACCESS_SECRET: 'suchasecureaccesssecret'
       JWT_REFRESH_SECRET: 'suchasecurerefreshsecret'
+      JWT_SECRET: 'suchasecuresecret'
+      GOOGLE_CLIENT_ID: 'your_google_client_id'
+      GOOGLE_REDIRECT_URI: 'https://your-domain.com/auth/oauth/google/callback'
 
 volumes:
   gps:
