@@ -1,0 +1,23 @@
+model Agency {
+    id           Int          @id @default(autoincrement())
+    uuid         String       @unique @db.Char(36)
+    name         String       @db.VarChar(255)
+    domain       String?      @db.VarChar(255)
+    isActive     Boolean      @default(true)
+    createdAt    DateTime     @default(now())
+    updatedAt    DateTime?    @updatedAt
+    userAgencies UserAgency[]
+}
+
+model UserAgency {
+    id        Int       @id @default(autoincrement())
+    uuid      String    @unique @db.Char(36)
+    userId    Int
+    agencyId  Int
+    role      String    @default("user") @db.VarChar(50)
+    isActive  Boolean   @default(true)
+    createdAt DateTime  @default(now())
+    updatedAt DateTime? @updatedAt
+    user      User      @relation(fields: [userId], references: [id])
+    agency    Agency    @relation(fields: [agencyId], references: [id])
+}

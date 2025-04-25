@@ -23,6 +23,7 @@ model User {
     sessions                Session[]
     authTokens              AuthToken[]
     mfaMethods              MfaMethod[]
+    userAgencies            UserAgency[]
 }
 
 model AuditLog {

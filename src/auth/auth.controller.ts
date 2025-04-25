@@ -21,6 +21,7 @@ import { AuthGuard } from './auth.guard';
 import { RefreshTokenDto } from './dto/refresh.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
+import { CurrentUser } from './decorators/current-user.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -223,13 +224,16 @@ export class AuthController {
     description: 'Unauthorized',
     schema: { example: { message: 'Invalid token' } },
   })
-  async logout(@Req() request: any, @Res() res: Response) {
+  async logout(
+    @Req() request: any,
+    @Res() res: Response,
+    @CurrentUser() user: Record<string, any>,
+  ) {
     // Request Metadata
     const ipAddress = request.ip;
     const userAgent = request.headers['user-agent'] || '';
     const metadata = { ipAddress, userAgent };
 
-    const user = request.user;
     const response = await this._authService.logoutUser(user, metadata);
     return res.json(response);
   }
