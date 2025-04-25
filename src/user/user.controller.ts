@@ -19,7 +19,7 @@ import { AuthGuard } from './../auth/auth.guard';
 import { Response } from 'express';
 import { UserInfoResponseDto } from './dto/user-info.dto';
 
-@ApiTags('Authentication')
+@ApiTags('Users')
 @Controller('users')
 export class UserController {
   constructor(
