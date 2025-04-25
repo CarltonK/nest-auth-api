@@ -4,6 +4,7 @@ export default () => ({
   PORT: process.env.PORT || 3000,
   NODE_ENV: process.env.NODE_ENV,
   jwt: {
+    secret: process.env.JWT_SECRET,
     accessSecret: process.env.JWT_ACCESS_SECRET,
     accessExpiry: parseInt(process.env.JWT_ACCESS_EXPIRY) || 3600, // 1 hour
     refreshSecret: process.env.JWT_REFRESH_SECRET,
@@ -59,6 +60,18 @@ export default () => ({
     suspiciousThreshold: parseInt(process.env.SUSPICIOUS_THRESHOLD) || 3,
     lockoutDuration: parseInt(process.env.LOCKOUT_DURATION) || 1800000, // 30 minutes
   },
+  oauth: {
+    google: {
+      enabled: process.env.GOOGLE_OAUTH_ENABLED === 'true',
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      redirectUri: process.env.GOOGLE_REDIRECT_URI,
+    },
+    // github: {
+    //   enabled: process.env.GITHUB_OAUTH_ENABLED === 'true',
+    //   clientId: process.env.GITHUB_CLIENT_ID,
+    //   redirectUri: process.env.GITHUB_REDIRECT_URI,
+    // },
+  },
 });
 
 export const validationSchema = Joi.object({
@@ -91,6 +104,7 @@ export const validationSchema = Joi.object({
     .default(300000),
 
   // JWT Configuration
+  JWT_SECRET: Joi.string().required(),
   JWT_ACCESS_SECRET: Joi.string().required(),
   JWT_REFRESH_SECRET: Joi.string().required(),
   JWT_ACCESS_EXPIRY: Joi.number().default(3600),
@@ -107,4 +121,12 @@ export const validationSchema = Joi.object({
 
   // MFA
   MFA_TOKEN_EXPIRY: Joi.number().default(300000),
+
+  // OAuth
+  GOOGLE_OAUTH_ENABLED: Joi.boolean().default(true),
+  GOOGLE_CLIENT_ID: Joi.string().required(),
+  GOOGLE_REDIRECT_URI: Joi.string().uri().required(),
+  // GITHUB_OAUTH_ENABLED: Joi.boolean().default(false),
+  // GITHUB_CLIENT_ID: Joi.string().required(),
+  // GITHUB_REDIRECT_URI: Joi.string().uri().required(),
 });

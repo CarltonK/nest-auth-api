@@ -34,6 +34,9 @@ async function bootstrap() {
   app.use(json({ limit: '5mb' })); // Set global max body size to 5mb
   app.use(urlencoded({ limit: '5mb', extended: true }));
 
+  // Declare ConfigService
+  const configService = app.get(ConfigService);
+
   /*
    * Global Pipes
    */
@@ -92,7 +95,6 @@ async function bootstrap() {
   app.use(helmet()); // Helmet
   app.enableCors(); // Cors
 
-  const configService = app.get(ConfigService);
   setupSwagger(app);
   await app.listen(configService.get('PORT'));
 }

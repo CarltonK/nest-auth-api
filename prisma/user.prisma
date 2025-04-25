@@ -1,8 +1,8 @@
 model User {
-    id                      Int               @id @default(autoincrement())
-    emailAddress            String            @unique @db.VarChar(200)
-    firstName               String?           @db.VarChar(200)
-    lastName                String?           @db.VarChar(200)
+    id                      Int                @id @default(autoincrement())
+    emailAddress            String             @unique @db.VarChar(200)
+    firstName               String?            @db.VarChar(200)
+    lastName                String?            @db.VarChar(200)
     passwordHash            String
     emailVerifiedAt         DateTime?
     emailVerificationToken  String?
@@ -10,20 +10,21 @@ model User {
     passwordResetToken      String?
     passwordResetSentAt     DateTime?
     metadata                Json?
-    mfaEnabled              Boolean           @default(false)
-    isActive                Boolean           @default(false)
-    isLocked                Boolean           @default(false)
-    failedAttemptsCount     Int               @default(0)
+    mfaEnabled              Boolean            @default(false)
+    isActive                Boolean            @default(false)
+    isLocked                Boolean            @default(false)
+    failedAttemptsCount     Int                @default(0)
     passwordChangedAt       DateTime
     lastLoginAt             DateTime?
-    createdAt               DateTime          @default(now())
-    updatedAt               DateTime          @updatedAt
+    createdAt               DateTime           @default(now())
+    updatedAt               DateTime           @updatedAt
     auditLog                AuditLog[]
     passwordHistory         PasswordHistory[]
     sessions                Session[]
     authTokens              AuthToken[]
     mfaMethods              MfaMethod[]
     userAgencies            UserAgency[]
+    identities              AuthUseridentity[]
 }
 
 model AuditLog {
@@ -42,4 +43,29 @@ model PasswordHistory {
     user         User     @relation(fields: [userId], references: [id])
     passwordHash String
     createdAt    DateTime @default(now())
+}
+
+model AuthOauthprovider {
+    id         Int                @id @default(autoincrement())
+    name       String             @unique
+    createdAt  DateTime           @default(now())
+    updatedAt  DateTime?          @updatedAt
+    identities AuthUseridentity[]
+}
+
+model AuthUseridentity {
+    id             Int               @id @default(autoincrement())
+    uuid           String            @db.Char(36)
+    userId         Int
+    providerId     Int
+    providerUserId String            @db.VarChar(255)
+    accessToken    String?           @db.Text
+    refreshToken   String?           @db.Text
+    tokenExpiresAt DateTime?
+    createdAt      DateTime          @default(now())
+    updatedAt      DateTime?         @updatedAt
+    user           User              @relation(fields: [userId], references: [id])
+    provider       AuthOauthprovider @relation(fields: [providerId], references: [id])
+
+    @@unique([userId, providerId])
 }

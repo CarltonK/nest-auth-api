@@ -22,6 +22,8 @@ import { RefreshTokenDto } from './dto/refresh.dto';
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { InitiateOAuthDto } from './dto/initate-oauth.dto';
+import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -386,5 +388,107 @@ export class AuthController {
     const response = await this._authService.resetPassword(dto, metadata);
 
     return res.json(response);
+  }
+
+  /*
+   * Initate OAuth flow
+   */
+  @Get('oauth/initiate')
+  @ApiOperation({
+    summary: 'Initiate OAuth flow',
+    description: 'Redirects to the specified OAuth provider for authentication',
+  })
+  @ApiQuery({ type: InitiateOAuthDto, name: 'provider', required: true })
+  @ApiResponse({
+    status: HttpStatus.FOUND,
+    description: 'Redirect to OAuth provider',
+    headers: {
+      Location: {
+        description: 'OAuth provider URL',
+        example: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=...',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or disabled OAuth provider',
+    schema: {
+      example: {
+        message: 'Invalid or disabled OAuth provider',
+      },
+    },
+  })
+  async initiateOAuth(
+    @Query() { provider }: InitiateOAuthDto,
+    @Res() res: Response,
+  ) {
+    const url = await this._authService.initiateOauth(provider);
+    res.redirect(url);
+  }
+
+  /*
+   * OAuth callback endpoint
+   */
+  @Get('oauth/callback')
+  @ApiOperation({
+    summary: 'OAuth callback handler',
+    description:
+      'Handles the callback from OAuth provider after authentication',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'OAuth authentication successful',
+    schema: {
+      example: {
+        access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refresh_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        expires_in: 3600,
+        session_id: 'abc123-def456-ghi789',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'OAuth error occurred',
+    schema: {
+      examples: {
+        OAuthError: {
+          value: {
+            error: 'OAuth error: access_denied',
+          },
+        },
+        StateMismatch: {
+          value: {
+            error: 'Invalid state or missing code',
+          },
+        },
+        InvalidProvider: {
+          value: {
+            error: 'Invalid OAuth provider',
+          },
+        },
+        TokenError: {
+          value: {
+            error: 'Failed to obtain access token',
+          },
+        },
+        UserInfoError: {
+          value: {
+            error: 'Failed to obtain user information',
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error during OAuth processing',
+  })
+  async handleOAuthCallback(
+    @Query() query: OAuthCallbackDto,
+    @Res() res: Response,
+  ) {
+    const result = await this._authService.handleOAuthCallback(query);
+    return res.json(result);
   }
 }

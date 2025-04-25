@@ -7,6 +7,8 @@ import { HttpModule } from '@nestjs/axios';
 import { PrismaModule } from './../prisma/prisma.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtService } from './jwt.service';
+import { createOAuthProviders } from './providers/oauth.providers';
+import { OAuthService } from './oauth.service';
 
 @Module({
   imports: [
@@ -25,7 +27,17 @@ import { JwtService } from './jwt.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthGuard, JwtService],
+  providers: [
+    AuthService,
+    AuthGuard,
+    JwtService,
+    {
+      provide: 'OAUTH_PROVIDERS',
+      useFactory: createOAuthProviders,
+      inject: [ConfigService],
+    },
+    OAuthService,
+  ],
   exports: [AuthGuard, JwtService],
 })
 export class AuthModule {}
