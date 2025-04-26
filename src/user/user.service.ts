@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from './../prisma/prisma.service';
 import { Inject } from '@nestjs/common';
 import { UserInfoResponseDto } from './dto/user-info.dto';
+import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 
 @Injectable()
 export class UserService {
@@ -72,8 +73,57 @@ export class UserService {
     // }
 
     // Create audit log
-    await this.createAuditLog(user.id, 'USER_INFO_ACCESSED', 'INFO', {});
+    await this._prismaService.auditLog.create({
+      data: {
+        userId,
+        eventType: 'USER_INFO_ACCESSED',
+        severity: 'INFO',
+        details: {},
+      },
+    });
     return response;
+  }
+
+  async updateUserInfo(
+    user: Record<string, any>,
+    data: UpdateUserInfoDto,
+  ): Promise<{ message: string }> {
+    const { sub: userId } = user;
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException({
+        message: 'No valid fields to update',
+      });
+    }
+    try {
+      return await this._prismaService.$transaction(async (prisma) => {
+        // Update user
+        await prisma.user.update({
+          where: { id: userId },
+          data,
+        });
+
+        // Create audit log
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            eventType: 'USER_INFO_UPDATED',
+            severity: 'INFO',
+            details: {
+              updatedFields: Object.keys(data).filter(
+                (key) => data[key] !== undefined,
+              ),
+            },
+          },
+        });
+
+        return { message: 'User information updated successfully' };
+      });
+    } catch (error) {
+      throw new BadRequestException({
+        message: 'Failed to update user information',
+      });
+    }
   }
 
   private getUserMfaMethods(userId: number): Promise<any[]> {
@@ -84,22 +134,6 @@ export class UserService {
         type: true,
         createdAt: true,
         lastUsedAt: true,
-      },
-    });
-  }
-
-  private createAuditLog(
-    userId: number | null,
-    eventType: string,
-    severity: string,
-    details: Record<string, any>,
-  ) {
-    return this._prismaService.auditLog.create({
-      data: {
-        userId,
-        eventType,
-        severity,
-        details,
       },
     });
   }
