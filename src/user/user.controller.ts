@@ -24,6 +24,8 @@ import { UserInfoResponseDto } from './dto/user-info.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { UpdateEmailDto } from './dto/update-email.dto';
 import { VerifyEmailUpdateDto } from './dto/verify-email-update.dto';
+import { UpdatePhoneDto } from './dto/update-phone.dto';
+import { VerifyPhoneDto } from './dto/verify-phone.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -173,6 +175,84 @@ export class UserController {
     @Query() { token }: VerifyEmailUpdateDto,
   ) {
     const response = await this._userService.verifyEmailUpdate(token);
+    return res.json(response);
+  }
+
+  /*
+   * Initiate a phone update for an authenticated user
+   */
+  @Put('me/phone')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Initiate phone number update',
+    description:
+      'Starts phone number update process with password verification and SMS code',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Verification code sent successfully',
+    schema: {
+      example: {
+        message: 'Verification code sent to your new phone number',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid phone format/Phone number is already in use',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Current password is incorrect',
+  })
+  async updatePhone(
+    @Res() res: Response,
+    @Body() updateData: UpdatePhoneDto,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    const response = await this._userService.initiatePhoneUpdate(
+      user,
+      updateData,
+    );
+    return res.json(response);
+  }
+
+  /*
+   * Verify a phone number update for a user
+   */
+  @Get('me/verify-phone')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Verify phone number update',
+    description: 'Confirms phone number change using SMS verification code',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Phone number verified successfully',
+    schema: {
+      example: {
+        message: 'Phone number verified successfully',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or expired verification code',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Authentication required',
+  })
+  async verifyPhoneUpdate(
+    @Res() res: Response,
+    @Query() { code }: VerifyPhoneDto,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    const response = await this._userService.verifyPhoneUpdate(user, code);
     return res.json(response);
   }
 }
