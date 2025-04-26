@@ -119,7 +119,7 @@ export class UserService {
 
         return { message: 'User information updated successfully' };
       });
-    } catch (error) {
+    } catch {
       throw new BadRequestException({
         message: 'Failed to update user information',
       });

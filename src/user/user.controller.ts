@@ -84,9 +84,11 @@ export class UserController {
     },
   })
   @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
     description: 'No valid fields to update',
   })
   @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
     description: 'Unauthorized - Invalid or missing authentication token',
   })
   async updateUserInfo(
