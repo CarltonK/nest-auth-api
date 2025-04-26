@@ -11,6 +11,7 @@ import { UpdateEmailDto } from './dto/update-email.dto';
 import { compare } from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
+import { UpdatePhoneDto } from './dto/update-phone.dto';
 
 @Injectable()
 export class UserService {
@@ -133,6 +134,81 @@ export class UserService {
         message: 'Failed to update user information',
       });
     }
+  }
+
+  initiatePhoneUpdate(user: Record<string, any>, data: UpdatePhoneDto) {
+    const { sub: userId } = user;
+    return this._prismaService.$transaction(async (prisma) => {
+      // Get current user with password hash
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          emailAddress: true,
+          passwordHash: true,
+        },
+      });
+
+      // Verify password
+      const passwordValid = await compare(data.password, user.passwordHash);
+      if (!passwordValid) {
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            eventType: 'PHONE_UPDATE_FAILED',
+            severity: 'WARNING',
+            details: { reason: 'invalid_password' },
+          },
+        });
+        throw new UnauthorizedException({
+          message: 'Current password is incorrect',
+        });
+      }
+
+      // Check if phone is already in use
+      const phoneExists = await prisma.user.findFirst({
+        where: {
+          phone: data.newPhone,
+          id: { not: userId },
+        },
+        select: { id: true },
+      });
+
+      if (phoneExists) {
+        throw new BadRequestException({
+          message: 'Phone number is already in use',
+        });
+      }
+
+      // Generate verification code
+      const verificationCode = Math.floor(
+        100000 + Math.random() * 900000,
+      ).toString();
+
+      // Update user record
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          pendingPhone: data.newPhone,
+          phoneVerificationCode: verificationCode,
+          phoneVerificationSentAt: new Date(),
+        },
+      });
+
+      // TODO: Send verification SMS
+
+      // Create audit log
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          eventType: 'PHONE_UPDATE_INITIATED',
+          severity: 'INFO',
+          details: { new_phone: data.newPhone },
+        },
+      });
+
+      return { message: 'Verification code sent to your new phone number' };
+    });
   }
 
   initiateEmailUpdate(user: Record<string, any>, data: UpdateEmailDto) {
@@ -284,6 +360,65 @@ export class UserService {
         message:
           'Email updated successfully. Please log in with your new email.',
       };
+    });
+  }
+
+  async verifyPhoneUpdate(user: Record<string, any>, code: string) {
+    const { sub: userId } = user;
+    return this._prismaService.$transaction(async (prisma) => {
+      // Get code expiration time from config
+
+      // Get token expiration hours from config
+      const expiryMinutes = this._configService.get<number>(
+        'security.phone.verification.expiryMinutes',
+      );
+
+      // Find user with valid verification code
+      const user = await prisma.user.findUnique({
+        where: {
+          id: userId,
+          phoneVerificationSentAt: {
+            gte: new Date(Date.now() - expiryMinutes * 60 * 1000),
+          },
+        },
+        select: {
+          id: true,
+          pendingPhone: true,
+          phoneVerificationCode: true,
+        },
+      });
+
+      if (!user || user.phoneVerificationCode !== code) {
+        throw new BadRequestException({
+          message: 'Invalid or expired verification code',
+        });
+      }
+
+      // Update user record
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          phone: user.pendingPhone,
+          pendingPhone: null,
+          phoneVerificationCode: null,
+          phoneVerificationSentAt: null,
+          phoneVerifiedAt: new Date(),
+        },
+      });
+
+      // Create audit log
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          eventType: 'PHONE_UPDATED',
+          severity: 'INFO',
+          details: {
+            newPhone: updatedUser.phone,
+          },
+        },
+      });
+
+      return { message: 'Phone number verified successfully' };
     });
   }
 

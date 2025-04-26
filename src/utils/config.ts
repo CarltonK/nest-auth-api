@@ -56,6 +56,11 @@ export default () => ({
         expiryHours: parseInt(process.env.VERIFICATION_EXPIRY_HOURS),
       },
     },
+    phone: {
+      verification: {
+        expiryMinutes: parseInt(process.env.VERIFICATION_EXPIRY_MINUTES),
+      },
+    },
     maxFailedAttempts: parseInt(process.env.MAX_FAILED_ATTEMPTS) || 5,
     suspiciousThreshold: parseInt(process.env.SUSPICIOUS_THRESHOLD) || 3,
     lockoutDuration: parseInt(process.env.LOCKOUT_DURATION) || 1800000, // 30 minutes
@@ -118,6 +123,7 @@ export const validationSchema = Joi.object({
   SUSPICIOUS_THRESHOLD: Joi.number().min(1).default(3),
   LOCKOUT_DURATION: Joi.number().min(30000).default(1800000),
   VERIFICATION_EXPIRY_HOURS: Joi.number().default(24),
+  VERIFICATION_EXPIRY_MINUTES: Joi.number().default(15),
 
   // MFA
   MFA_TOKEN_EXPIRY: Joi.number().default(300000),

@@ -52,6 +52,16 @@ For easier identification the name should be in small caps and separate by under
 $ npx prisma migrate dev --name create_user_table
 ```
 
+## Updating configuration
+
+Configuration is managed via environment variables.
+
+To add or update a configuration value:
+1. Add it in docker-compose.yaml
+2. Add it in src/utils/config.ts
+3. Validate it in validationSchema inside config.ts
+4. Restart the app
+
 ## API Documentation
 
 Once confirmed that the app is running you can access the documentation on http://localhost:3000/swagger
