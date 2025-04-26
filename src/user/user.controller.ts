@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Inject,
   Put,
+  Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import { AuthGuard } from './../auth/auth.guard';
 import { Response } from 'express';
 import { UserInfoResponseDto } from './dto/user-info.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
+import { UpdateEmailDto } from './dto/update-email.dto';
+import { VerifyEmailUpdateDto } from './dto/verify-email-update.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -84,9 +87,11 @@ export class UserController {
     },
   })
   @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
     description: 'No valid fields to update',
   })
   @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
     description: 'Unauthorized - Invalid or missing authentication token',
   })
   async updateUserInfo(
@@ -95,6 +100,79 @@ export class UserController {
     @Body() updateData: UpdateUserInfoDto,
   ) {
     const response = await this._userService.updateUserInfo(user, updateData);
+    return res.json(response);
+  }
+
+  /*
+   * Initiate an email update for an authenticated user
+   */
+  @Put('me/email')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Initiate email update',
+    description:
+      'Starts the email update process by verifying password and sending verification email',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Verification email sent successfully',
+    schema: {
+      example: {
+        message: 'Please check your new email for verification instructions',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Email already in use / Invalid request format',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid password / Invalid credentials',
+  })
+  async updateEmail(
+    @Res() res: Response,
+    @Body() updateData: UpdateEmailDto,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    const response = await this._userService.initiateEmailUpdate(
+      user,
+      updateData,
+    );
+    return res.json(response);
+  }
+
+  /*
+   * Verify an email update for a user
+   */
+  @Get('me/verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Verify email update',
+    description:
+      'Confirms email change using verification token sent to new email',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Email updated successfully',
+    schema: {
+      example: {
+        message:
+          'Email updated successfully. Please log in with your new email.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or expired verification token',
+  })
+  async verifyEmailUpdate(
+    @Res() res: Response,
+    @Query() { token }: VerifyEmailUpdateDto,
+  ) {
+    const response = await this._userService.verifyEmailUpdate(token);
     return res.json(response);
   }
 }

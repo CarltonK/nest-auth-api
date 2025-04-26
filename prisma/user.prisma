@@ -23,6 +23,7 @@ model User {
     phone                   String?            @db.VarChar(20)
     phoneVerifiedAt         DateTime?
     pendingPhone            String?            @db.VarChar(20)
+    pendingEmail            String?            @db.VarChar(255)
     phoneVerificationCode   String?            @db.VarChar(6)
     phoneVerificationSentAt DateTime?
     createdAt               DateTime           @default(now())
