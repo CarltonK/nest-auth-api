@@ -10,12 +10,21 @@ model User {
     passwordResetToken      String?
     passwordResetSentAt     DateTime?
     metadata                Json?
+    appMetadata             Json?
     mfaEnabled              Boolean            @default(false)
     isActive                Boolean            @default(false)
     isLocked                Boolean            @default(false)
+    forcePasswordChange     Boolean            @default(false)
     failedAttemptsCount     Int                @default(0)
     passwordChangedAt       DateTime
     lastLoginAt             DateTime?
+    lockedAt                DateTime?
+    lockExpiresAt           DateTime?
+    phone                   String?            @db.VarChar(20)
+    phoneVerifiedAt         DateTime?
+    pendingPhone            String?            @db.VarChar(20)
+    phoneVerificationCode   String?            @db.VarChar(6)
+    phoneVerificationSentAt DateTime?
     createdAt               DateTime           @default(now())
     updatedAt               DateTime           @updatedAt
     auditLog                AuditLog[]
