@@ -5,8 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  Post,
   Put,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -19,13 +21,14 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from './../auth/decorators/current-user.decorator';
 import { AuthGuard } from './../auth/auth.guard';
-import { Response } from 'express';
+import { Response, Request } from 'express';
 import { UserInfoResponseDto } from './dto/user-info.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { UpdateEmailDto } from './dto/update-email.dto';
 import { VerifyEmailUpdateDto } from './dto/verify-email-update.dto';
 import { UpdatePhoneDto } from './dto/update-phone.dto';
 import { VerifyPhoneDto } from './dto/verify-phone.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -253,6 +256,70 @@ export class UserController {
     @CurrentUser() user: Record<string, any>,
   ) {
     const response = await this._userService.verifyPhoneUpdate(user, code);
+    return res.json(response);
+  }
+
+  /*
+   * Update an authenticated users' password
+   */
+  @Post('me/password')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Update the password for an authenticated user',
+    description: 'Changes the password for an authenticated user',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Password updated successfully',
+    schema: {
+      example: {
+        message: 'Password updated successfully',
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        expiresIn: 3600,
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'New password must be different from current password',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description:
+      'This password has been found in data breaches. Please choose a different password.',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description:
+      'Password has been used recently. Please choose a different password.',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'New password must be different from current password',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Current password is incorrect',
+  })
+  async updatePassword(
+    @Req() request: Request,
+    @Res() res: Response,
+    @Body() dto: UpdatePasswordDto,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._userService.passwordUpdate(
+      dto,
+      user,
+      metadata,
+    );
     return res.json(response);
   }
 }
