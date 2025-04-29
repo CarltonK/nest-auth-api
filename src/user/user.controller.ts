@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -356,11 +357,53 @@ export class UserController {
     description: 'Unauthorized. Invalid or missing token.',
   })
   async getUserAgencies(
-    @Req() request: Request,
     @Res() res: Response,
     @CurrentUser() user: Record<string, any>,
   ) {
     const response = await this._userService.getUserAgencies(user);
+    return res.json(response);
+  }
+
+  /**
+   * Delete user account
+   */
+  @Delete('me')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Delete user account',
+    description:
+      'Permanently deletes the authenticated user account and all associated data',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Account deleted successfully',
+    schema: {
+      example: {
+        message: 'Account deleted successfully',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized. Invalid or missing token.',
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+  })
+  async deleteAccount(
+    @Req() request: Request,
+    @Res() res: Response,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._userService.deleteUser(user, metadata);
     return res.json(response);
   }
 }

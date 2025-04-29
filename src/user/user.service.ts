@@ -18,6 +18,7 @@ import zxcvbn from 'zxcvbn';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { JwtService } from './../auth/jwt.service';
+import { AppConfigService } from 'src/app-config/app.config';
 
 @Injectable()
 export class UserService {
@@ -26,6 +27,8 @@ export class UserService {
   constructor(
     @Inject(PrismaService) private readonly _prismaService: PrismaService,
     @Inject(ConfigService) private readonly _configService: ConfigService,
+    @Inject(AppConfigService)
+    private readonly _appConfigService: AppConfigService,
     @Inject(HttpService) private readonly _httpService: HttpService,
     @Inject(JwtService) private readonly _jwtService: JwtService,
   ) {
@@ -666,10 +669,10 @@ export class UserService {
     });
 
     const agencies = userAgencies.map(({ role, agency }) => {
-      // const config =
-      //   agency.config && agency.config.length > 0
-      //     ? agency.config[0].config
-      //     : DEFAULT_AGENCY_CONFIG;
+      const config =
+        agency.config && agency.config.length > 0
+          ? agency.config[0].config
+          : this._appConfigService.getDefaultAgencyConfig();
 
       return {
         id: agency.id,
@@ -677,7 +680,7 @@ export class UserService {
         name: agency.name,
         domain: agency.domain,
         role,
-        // config,
+        config,
       };
     });
 
@@ -691,6 +694,46 @@ export class UserService {
     });
 
     return { agencies };
+  }
+
+  async deleteUser(user: Record<string, any>, metadata: Record<string, any>) {
+    const { ipAddress } = metadata;
+    const { sub: userId } = user;
+    try {
+      return await this._prismaService.$transaction(async (prisma) => {
+        await prisma.auditLog.create({
+          data: {
+            userId: userId ?? null,
+            eventType: 'ACCOUNT_DELETED',
+            severity: 'WARNING',
+            details: {
+              ipAddress,
+              environment: this._configService.get<string>('NODE_ENV'),
+            },
+          },
+        });
+
+        // Delete all related data in a single transaction
+        await Promise.all([
+          prisma.session.deleteMany({ where: { userId } }),
+          prisma.passwordHistory.deleteMany({ where: { userId } }),
+          prisma.mfaMethod.deleteMany({ where: { userId } }),
+          // prisma.user.delete({ where: { id: userId } }),
+        ]);
+
+        return { message: 'Account deleted successfully' };
+      });
+    } catch (error) {
+      await this._prismaService.auditLog.create({
+        data: {
+          userId: userId ?? null,
+          eventType: 'FAILED_TO_DELETE_USER_ACCOUNT',
+          severity: 'ERROR',
+          details: { error: error.message, ipAddress },
+        },
+      });
+      throw error;
+    }
   }
 
   /*
