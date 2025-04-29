@@ -642,6 +642,57 @@ export class UserService {
     });
   }
 
+  async getUserAgencies(user: Record<string, any>) {
+    const { sub: userId } = user;
+
+    const userAgencies = await this._prismaService.userAgency.findMany({
+      where: {
+        userId,
+        isActive: true,
+        agency: { isActive: true },
+      },
+      select: {
+        role: true,
+        agency: {
+          select: {
+            id: true,
+            uuid: true,
+            name: true,
+            domain: true,
+            config: { take: 1, select: { config: true } },
+          },
+        },
+      },
+    });
+
+    const agencies = userAgencies.map(({ role, agency }) => {
+      // const config =
+      //   agency.config && agency.config.length > 0
+      //     ? agency.config[0].config
+      //     : DEFAULT_AGENCY_CONFIG;
+
+      return {
+        id: agency.id,
+        uuid: agency.uuid,
+        name: agency.name,
+        domain: agency.domain,
+        role,
+        // config,
+      };
+    });
+
+    await this._prismaService.auditLog.create({
+      data: {
+        userId,
+        eventType: 'AGENCIES_LISTED',
+        severity: 'INFO',
+        details: {},
+      },
+    });
+
+    return { agencies };
+  }
+
   /*
    * Private Methods
    */

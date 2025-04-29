@@ -322,4 +322,45 @@ export class UserController {
     );
     return res.json(response);
   }
+
+  /**
+   * Get agencies for the authenticated user
+   */
+  @Get('me/agencies')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get agencies for authenticated user',
+    description: 'Returns a list of agencies the authenticated user belongs to',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'List of agencies retrieved successfully',
+    schema: {
+      example: {
+        agencies: [
+          {
+            AGENCYID: 1,
+            uuid: 'e7b8c4c6-4efc-4ec4-a9f0-1bcd4fa9f3d7',
+            name: 'Example Agency',
+            domain: 'example.com',
+            role: 'admin',
+          },
+        ],
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized. Invalid or missing token.',
+  })
+  async getUserAgencies(
+    @Req() request: Request,
+    @Res() res: Response,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    const response = await this._userService.getUserAgencies(user);
+    return res.json(response);
+  }
 }

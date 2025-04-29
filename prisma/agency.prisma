@@ -7,6 +7,7 @@ model Agency {
     createdAt    DateTime     @default(now())
     updatedAt    DateTime?    @updatedAt
     userAgencies UserAgency[]
+    config       AuthConfig[]
 }
 
 model UserAgency {
@@ -20,4 +21,16 @@ model UserAgency {
     updatedAt DateTime? @updatedAt
     user      User      @relation(fields: [userId], references: [id])
     agency    Agency    @relation(fields: [agencyId], references: [id])
+}
+
+model AuthConfig {
+    id        Int       @id @default(autoincrement())
+    uuid      String    @db.Char(36)
+    agencyId  Int?
+    userId    Int?
+    config    Json
+    createdAt DateTime  @default(now())
+    updatedAt DateTime? @updatedAt
+    agency    Agency?   @relation(fields: [agencyId], references: [id])
+    user      User?     @relation(fields: [userId], references: [id])
 }
