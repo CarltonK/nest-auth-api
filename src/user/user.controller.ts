@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -320,6 +321,89 @@ export class UserController {
       user,
       metadata,
     );
+    return res.json(response);
+  }
+
+  /**
+   * Get agencies for the authenticated user
+   */
+  @Get('me/agencies')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get agencies for authenticated user',
+    description: 'Returns a list of agencies the authenticated user belongs to',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'List of agencies retrieved successfully',
+    schema: {
+      example: {
+        agencies: [
+          {
+            AGENCYID: 1,
+            uuid: 'e7b8c4c6-4efc-4ec4-a9f0-1bcd4fa9f3d7',
+            name: 'Example Agency',
+            domain: 'example.com',
+            role: 'admin',
+          },
+        ],
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized. Invalid or missing token.',
+  })
+  async getUserAgencies(
+    @Res() res: Response,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    const response = await this._userService.getUserAgencies(user);
+    return res.json(response);
+  }
+
+  /**
+   * Delete user account
+   */
+  @Delete('me')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Delete user account',
+    description:
+      'Permanently deletes the authenticated user account and all associated data',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Account deleted successfully',
+    schema: {
+      example: {
+        message: 'Account deleted successfully',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized. Invalid or missing token.',
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+  })
+  async deleteAccount(
+    @Req() request: Request,
+    @Res() res: Response,
+    @CurrentUser() user: Record<string, any>,
+  ) {
+    // Request Metadata
+    const ipAddress = request.ip;
+    const userAgent = request.headers['user-agent'] || '';
+    const metadata = { ipAddress, userAgent };
+
+    const response = await this._userService.deleteUser(user, metadata);
     return res.json(response);
   }
 }
