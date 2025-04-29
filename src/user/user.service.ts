@@ -701,6 +701,14 @@ export class UserService {
     const { sub: userId } = user;
     try {
       return await this._prismaService.$transaction(async (prisma) => {
+        // Delete all related data in a single transaction
+        await Promise.all([
+          prisma.session.deleteMany({ where: { userId } }),
+          prisma.passwordHistory.deleteMany({ where: { userId } }),
+          prisma.mfaMethod.deleteMany({ where: { userId } }),
+          // prisma.user.delete({ where: { id: userId } }),
+        ]);
+
         await prisma.auditLog.create({
           data: {
             userId: userId ?? null,
@@ -712,14 +720,6 @@ export class UserService {
             },
           },
         });
-
-        // Delete all related data in a single transaction
-        await Promise.all([
-          prisma.session.deleteMany({ where: { userId } }),
-          prisma.passwordHistory.deleteMany({ where: { userId } }),
-          prisma.mfaMethod.deleteMany({ where: { userId } }),
-          // prisma.user.delete({ where: { id: userId } }),
-        ]);
 
         return { message: 'Account deleted successfully' };
       });
