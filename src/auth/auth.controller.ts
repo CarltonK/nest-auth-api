@@ -6,12 +6,11 @@ import {
   HttpStatus,
   Post,
   Query,
-  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { Response, Request } from 'express';
+import { Response } from 'express';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RegisterUserDto } from './dto/register.dto';
@@ -24,6 +23,7 @@ import { PasswordResetDto } from './dto/password-reset.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { InitiateOAuthDto } from './dto/initate-oauth.dto';
 import { OAuthCallbackDto } from './dto/oauth-callback.dto';
+import { CurrentMetadata } from './decorators/metadata.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -74,15 +74,10 @@ export class AuthController {
     },
   })
   async registerUser(
-    @Req() request: Request,
     @Res() res: Response,
     @Body() registerDto: RegisterUserDto,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const resp = await this._authService.registerUser(registerDto, metadata);
     return res.json(resp);
   }
@@ -155,15 +150,10 @@ export class AuthController {
     },
   })
   async login(
-    @Req() request: Request,
     @Res() res: Response,
     @Body() loginDto: LoginUserDto,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._authService.loginUser(loginDto, metadata);
     return res.json(response);
   }
@@ -190,15 +180,10 @@ export class AuthController {
     schema: { example: { message: 'Invalid or expired verification token' } },
   })
   async verifyEmail(
-    @Req() request: Request,
     @Res() res: Response,
     @Query() verifyEmailDto: VerifyEmailDto,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._authService.verifyEmail(
       verifyEmailDto,
       metadata,
@@ -227,15 +212,10 @@ export class AuthController {
     schema: { example: { message: 'Invalid token' } },
   })
   async logout(
-    @Req() request: any,
     @Res() res: Response,
     @CurrentUser() user: Record<string, any>,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._authService.logoutUser(user, metadata);
     return res.json(response);
   }
@@ -268,15 +248,10 @@ export class AuthController {
     schema: { example: { message: 'Invalid or expired refresh token' } },
   })
   async refreshToken(
-    @Req() request: any,
     @Res() res: Response,
     @Body() dto: RefreshTokenDto,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._authService.refreshToken(dto, metadata);
     return res.json(response);
   }
@@ -317,14 +292,10 @@ export class AuthController {
     },
   })
   async requestPasswordReset(
-    @Req() request: any,
     @Res() res: Response,
     @Body() dto: RequestPasswordResetDto,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._authService.requestPasswordReset(
       dto.emailAddress,
       metadata,
@@ -378,15 +349,11 @@ export class AuthController {
     },
   })
   async resetPassword(
-    @Req() request: any,
     @Res() res: Response,
     @Body() dto: PasswordResetDto,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    const ipAddress = request.ip;
-    const metadata = { ipAddress };
-
     const response = await this._authService.resetPassword(dto, metadata);
-
     return res.json(response);
   }
 

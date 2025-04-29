@@ -9,7 +9,6 @@ import {
   Post,
   Put,
   Query,
-  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -22,7 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from './../auth/decorators/current-user.decorator';
 import { AuthGuard } from './../auth/auth.guard';
-import { Response, Request } from 'express';
+import { Response } from 'express';
 import { UserInfoResponseDto } from './dto/user-info.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { UpdateEmailDto } from './dto/update-email.dto';
@@ -30,6 +29,7 @@ import { VerifyEmailUpdateDto } from './dto/verify-email-update.dto';
 import { UpdatePhoneDto } from './dto/update-phone.dto';
 import { VerifyPhoneDto } from './dto/verify-phone.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { CurrentMetadata } from './../auth/decorators/metadata.decorator';
 
 @ApiTags('Users')
 @Controller('users')
@@ -306,16 +306,11 @@ export class UserController {
     description: 'Current password is incorrect',
   })
   async updatePassword(
-    @Req() request: Request,
     @Res() res: Response,
     @Body() dto: UpdatePasswordDto,
     @CurrentUser() user: Record<string, any>,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._userService.passwordUpdate(
       dto,
       user,
@@ -394,15 +389,10 @@ export class UserController {
     description: 'Internal server error',
   })
   async deleteAccount(
-    @Req() request: Request,
     @Res() res: Response,
     @CurrentUser() user: Record<string, any>,
+    @CurrentMetadata() metadata: Record<string, any>,
   ) {
-    // Request Metadata
-    const ipAddress = request.ip;
-    const userAgent = request.headers['user-agent'] || '';
-    const metadata = { ipAddress, userAgent };
-
     const response = await this._userService.deleteUser(user, metadata);
     return res.json(response);
   }
