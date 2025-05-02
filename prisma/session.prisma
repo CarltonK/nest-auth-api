@@ -38,6 +38,7 @@ model MfaMethod {
     secret     String?   @db.VarChar(255)
     phone      String?   @db.VarChar(20)
     isPrimary  Boolean   @default(false)
+    isActive   Boolean   @default(false)
     createdAt  DateTime  @default(now())
     lastUsedAt DateTime?
     userId     Int

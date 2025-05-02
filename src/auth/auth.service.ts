@@ -26,6 +26,7 @@ import { PasswordResetDto } from './dto/password-reset.dto';
 import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 import { OAuthService } from './oauth.service';
 import { EnableMfaDto } from './dto/enable-mfa.dto';
+import { GenerateBackupCodesDto } from './dto/generate-backup-codes.dto';
 
 // TODO: Use a Password Service
 @Injectable()
@@ -792,43 +793,122 @@ export class AuthService {
     const { sub: userId } = user;
     const { type } = dto;
     return this._prismaService.$transaction(async (prisma) => {
-      try {
-        // Generate secret
-        const secret = this.generateMfaSecret();
+      // Generate secret
+      const secret = this.generateMfaSecret();
 
-        // Store in database
-        await prisma.mfaMethod.create({
-          data: { userId, type, secret },
-          select: {
-            user: { select: { emailAddress: true } },
-          },
-        });
+      // Store in database
+      await prisma.mfaMethod.create({
+        data: { userId, type, secret },
+        select: {
+          user: { select: { emailAddress: true } },
+        },
+      });
 
-        // Prepare response
-        const response: any = { message: 'MFA setup initiated' };
+      // Prepare response
+      const response: any = { message: 'MFA setup initiated' };
 
-        switch (dto.type) {
-          case 'totp':
-            response.secret = secret;
-            // response.qrCode = await this.generateQrCode(
-            //   userMfa.user.emailAddress,
-            //   secret,
-            // );
-            break;
+      switch (dto.type) {
+        case 'totp':
+          response.secret = secret;
+          // response.qrCode = await this.generateQrCode(
+          //   userMfa.user.emailAddress,
+          //   secret,
+          // );
+          break;
 
-          case 'sms':
-            // TODO: Send SMS
-            break;
+        case 'sms':
+          // TODO: Send SMS
+          break;
 
-          case 'email':
-            // TODO: Send Email
-            break;
-        }
-
-        return response;
-      } catch (error) {
-        throw error;
+        case 'email':
+          // TODO: Send Email
+          break;
       }
+      return response;
+    });
+  }
+
+  async generateBackupCodes(
+    user: Record<string, any>,
+    dto: GenerateBackupCodesDto,
+    metadata: Record<string, any>,
+  ) {
+    const { sub: userId } = user;
+    const { password } = dto;
+
+    const currentUser = await this._prismaService.user.findUnique({
+      where: { id: userId },
+      select: { mfaEnabled: true, passwordHash: true },
+    });
+
+    // Verify password
+    const passwordValid = await compare(password, currentUser.passwordHash);
+    if (!passwordValid) {
+      await this._prismaService.auditLog.create({
+        data: {
+          userId,
+          eventType: 'BACKUP_CODES_GENERATION_FAILED',
+          severity: 'WARNING',
+          details: { reason: 'invalid_password' },
+        },
+      });
+      throw new UnauthorizedException({ message: 'Invalid password' });
+    }
+
+    // Check MFA enabled
+    if (!currentUser.mfaEnabled) {
+      throw new BadRequestException({
+        message: 'MFA must be enabled to generate backup codes',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      // Generate 10 backup codes
+      const backupCodes = Array.from({ length: 10 }, () =>
+        this.generateCode(8).toUpperCase(),
+      );
+
+      // Store hashed codes
+      await Promise.all(
+        backupCodes.map(async (code) =>
+          prisma.mfaMethod.create({
+            data: {
+              userId,
+              type: 'backup',
+              secret: await hash(code, 10),
+              isActive: true,
+            },
+          }),
+        ),
+      );
+
+      // Deactivate old backup codes
+      await prisma.mfaMethod.updateMany({
+        where: {
+          userId: user.id,
+          type: 'backup',
+          isActive: true,
+          createdAt: { lt: new Date() },
+        },
+        data: { isActive: false },
+      });
+
+      // Audit log
+      await this._prismaService.auditLog.create({
+        data: {
+          userId,
+          eventType: 'BACKUP_CODES_GENERATED',
+          severity: 'INFO',
+          details: { ...metadata },
+        },
+      });
+
+      return {
+        message: 'New backup codes generated successfully',
+        backupCodes,
+        notice:
+          'Save these codes in a secure location. They will not be shown again.',
+      };
     });
   }
 
@@ -843,6 +923,12 @@ export class AuthService {
 
   private generateMfaSecret(): string {
     return randomBytes(32).toString('hex');
+  }
+
+  private generateCode(length: number): string {
+    return randomBytes(Math.ceil(length / 2))
+      .toString('hex')
+      .slice(0, length);
   }
 
   private async checkRateLimiting(ipAddress: string, type: string) {

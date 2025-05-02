@@ -25,6 +25,7 @@ import { InitiateOAuthDto } from './dto/initate-oauth.dto';
 import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 import { CurrentMetadata } from './decorators/metadata.decorator';
 import { EnableMfaDto } from './dto/enable-mfa.dto';
+import { GenerateBackupCodesDto } from './dto/generate-backup-codes.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -515,6 +516,61 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const result = await this._authService.enableMfa(user, dto);
+    return res.json(result);
+  }
+
+  /*
+   * Generate backup codes
+   */
+  @Post('mfa/generate-backup-codes')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'Generate new MFA backup codes',
+    description:
+      'Generates new backup codes and invalidates previous ones. Requires password verification and active MFA.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Backup codes generated successfully',
+    schema: {
+      example: {
+        message: 'New backup codes generated successfully',
+        backupCodes: ['A1B2C3D4', 'E5F6G7H8', 'I9J0K1L2'],
+        notice:
+          'Save these codes in a secure location. They will not be shown again.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'MFA not enabled',
+    schema: {
+      example: {
+        message: 'MFA must be enabled to generate backup codes',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid password',
+    schema: {
+      example: {
+        message: 'Invalid password',
+      },
+    },
+  })
+  async generateBackupCodes(
+    @Body() dto: GenerateBackupCodesDto,
+    @CurrentUser() user: Record<string, any>,
+    @CurrentMetadata() metadata: Record<string, any>,
+    @Res() res: Response,
+  ) {
+    const result = await this._authService.generateBackupCodes(
+      user,
+      dto,
+      metadata,
+    );
     return res.json(result);
   }
 }
