@@ -27,6 +27,7 @@ import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 import { OAuthService } from './oauth.service';
 import { EnableMfaDto } from './dto/enable-mfa.dto';
 import { GenerateBackupCodesDto } from './dto/generate-backup-codes.dto';
+import { DisableMfaDto } from './dto/disable-mfa.dto';
 
 // TODO: Use a Password Service
 @Injectable()
@@ -908,6 +909,67 @@ export class AuthService {
         backupCodes,
         notice:
           'Save these codes in a secure location. They will not be shown again.',
+      };
+    });
+  }
+
+  async disableMfa(
+    user: Record<string, any>,
+    dto: DisableMfaDto,
+    metadata: Record<string, any>,
+  ) {
+    const { password } = dto;
+    const { sub: userId } = user;
+
+    const currentUser = await this._prismaService.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+
+    // Verify password
+    const passwordValid = await compare(password, currentUser.passwordHash);
+    if (!passwordValid) {
+      await this._prismaService.auditLog.create({
+        data: {
+          userId,
+          eventType: 'MFA_DISABLE_FAILED',
+          severity: 'WARNING',
+          details: { reason: 'invalid_password' },
+        },
+      });
+      throw new UnauthorizedException({
+        message: 'Invalid password',
+      });
+    }
+
+    return this._prismaService.$transaction(async (prisma) => {
+      // Deactivate all MFA factors
+      await prisma.mfaMethod.updateMany({
+        where: { userId, isActive: true },
+        data: { isActive: false, updatedAt: new Date() },
+      });
+
+      // Update user's MFA status
+      await prisma.user.update({
+        where: { id: userId },
+        data: { mfaEnabled: false },
+      });
+
+      // Audit log
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          eventType: 'MFA_DISABLED',
+          severity: 'WARNING',
+          details: { ...metadata },
+        },
+      });
+
+      // TODO: Force logout from all other sessions
+      // await this.sessionService.revokeAllSessions(user.id);
+
+      return {
+        message: 'MFA has been disabled successfully',
       };
     });
   }

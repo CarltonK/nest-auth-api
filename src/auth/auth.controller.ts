@@ -26,6 +26,7 @@ import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 import { CurrentMetadata } from './decorators/metadata.decorator';
 import { EnableMfaDto } from './dto/enable-mfa.dto';
 import { GenerateBackupCodesDto } from './dto/generate-backup-codes.dto';
+import { DisableMfaDto } from './dto/disable-mfa.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -58,7 +59,6 @@ export class AuthController {
     description: 'Validation error',
     schema: {
       example: {
-        statusCode: 400,
         message: 'Password is too weak',
         error: 'Bad Request',
       },
@@ -69,7 +69,6 @@ export class AuthController {
     description: 'Email already exists',
     schema: {
       example: {
-        statusCode: 409,
         message: 'Invalid registration details',
         error: 'Conflict',
       },
@@ -112,7 +111,6 @@ export class AuthController {
     description: 'Invalid request payload or credentials',
     schema: {
       example: {
-        statusCode: 400,
         message: ['password must be a string'],
         error: 'Bad Request',
       },
@@ -123,7 +121,6 @@ export class AuthController {
     description: 'Invalid credentials or expired session',
     schema: {
       example: {
-        statusCode: 401,
         message: 'Invalid credentials',
         error: 'Unauthorized',
       },
@@ -134,7 +131,6 @@ export class AuthController {
     description: 'Email not verified or insufficient permissions',
     schema: {
       example: {
-        statusCode: 403,
         message: 'Email not verified',
         error: 'Forbidden',
       },
@@ -145,7 +141,6 @@ export class AuthController {
     description: 'Account temporarily locked',
     schema: {
       example: {
-        statusCode: 423,
         message: 'Account temporarily locked',
         error: 'Locked',
       },
@@ -571,6 +566,49 @@ export class AuthController {
       dto,
       metadata,
     );
+    return res.json(result);
+  }
+
+  /*
+   * Disable MFA
+   */
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  @Post('mfa/disable')
+  @ApiOperation({
+    summary: 'Disable Multi-Factor Authentication',
+    description:
+      'Disables MFA for the authenticated user after password verification',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'MFA disabled successfully',
+    schema: {
+      example: {
+        message: 'MFA has been disabled successfully',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid password',
+    schema: {
+      example: {
+        message: 'Invalid password',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error during MFA disable',
+  })
+  async disableMfa(
+    @Body() dto: DisableMfaDto,
+    @CurrentUser() user: any,
+    @CurrentMetadata() metadata: Record<string, any>,
+    @Res() res: Response,
+  ) {
+    const result = await this._authService.disableMfa(user, dto, metadata);
     return res.json(result);
   }
 }
