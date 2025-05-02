@@ -25,6 +25,7 @@ import { RefreshTokenDto } from './dto/refresh.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
 import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 import { OAuthService } from './oauth.service';
+import { EnableMfaDto } from './dto/enable-mfa.dto';
 
 // TODO: Use a Password Service
 @Injectable()
@@ -787,9 +788,63 @@ export class AuthService {
     }
   }
 
+  enableMfa(user: Record<string, any>, dto: EnableMfaDto) {
+    const { sub: userId } = user;
+    const { type } = dto;
+    return this._prismaService.$transaction(async (prisma) => {
+      try {
+        // Generate secret
+        const secret = this.generateMfaSecret();
+
+        // Store in database
+        await prisma.mfaMethod.create({
+          data: { userId, type, secret },
+          select: {
+            user: { select: { emailAddress: true } },
+          },
+        });
+
+        // Prepare response
+        const response: any = { message: 'MFA setup initiated' };
+
+        switch (dto.type) {
+          case 'totp':
+            response.secret = secret;
+            // response.qrCode = await this.generateQrCode(
+            //   userMfa.user.emailAddress,
+            //   secret,
+            // );
+            break;
+
+          case 'sms':
+            // TODO: Send SMS
+            break;
+
+          case 'email':
+            // TODO: Send Email
+            break;
+        }
+
+        return response;
+      } catch (error) {
+        throw error;
+      }
+    });
+  }
+
   /*
    * Private Methods
    */
+  // private async generateQrCode(email: string, secret: string) {
+  //   const appName = this._configService.getAppConfig().name;
+  //   const otpauth = authenticator.keyuri(email, appName, secret);
+  //   return QRCode.toString(otpauth, { type: 'svg' });
+  // }
+
+  private generateMfaSecret(): string {
+    return randomBytes(32).toString('hex');
+  }
+
   private async checkRateLimiting(ipAddress: string, type: string) {
     const attempts = this._configService.get<number>(
       `security.rateLimit.${type}.attempts`,

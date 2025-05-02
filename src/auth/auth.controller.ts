@@ -24,6 +24,7 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { InitiateOAuthDto } from './dto/initate-oauth.dto';
 import { OAuthCallbackDto } from './dto/oauth-callback.dto';
 import { CurrentMetadata } from './decorators/metadata.decorator';
+import { EnableMfaDto } from './dto/enable-mfa.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -361,6 +362,7 @@ export class AuthController {
    * Initate OAuth flow
    */
   @Get('oauth/initiate')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Initiate OAuth flow',
     description: 'Redirects to the specified OAuth provider for authentication',
@@ -456,6 +458,63 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const result = await this._authService.handleOAuthCallback(query);
+    return res.json(result);
+  }
+
+  /*
+   * Enable MFA
+   */
+  @Post('mfa/enable')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  @ApiOperation({
+    summary: 'Enable multi-factor authentication',
+    description: 'Initiates MFA setup for the authenticated user',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'MFA setup initiated successfully',
+    schema: {
+      oneOf: [
+        {
+          properties: {
+            message: { type: 'string', example: 'MFA setup initiated' },
+            secret: { type: 'string', example: 'JBSWY3DPEHPK3PXP' },
+            qrCode: { type: 'string', example: '<svg>...</svg>' },
+          },
+        },
+        {
+          properties: {
+            message: { type: 'string', example: 'MFA setup initiated' },
+          },
+        },
+      ],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Validation error or business rule violation',
+    schema: {
+      examples: {
+        InvalidType: {
+          value: { message: 'Invalid MFA type' },
+        },
+        PhoneNotVerified: {
+          value: { message: 'Phone number not verified' },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error during MFA setup',
+  })
+  async enableMfa(
+    @Body() dto: EnableMfaDto,
+    @CurrentUser() user: Record<string, any>,
+    @Res() res: Response,
+  ) {
+    const result = await this._authService.enableMfa(user, dto);
     return res.json(result);
   }
 }
